@@ -3,9 +3,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { isAuthenticated } from "@/lib/middleware/auth";
+import { aggregateCheckLogsByRun } from "@/lib/detection/check-log-aggregation";
 import { EndpointType, HealthStatus, Prisma } from "@/generated/prisma";
 
 const DEFAULT_PAGE_SIZE = 10;
+const HEATMAP_POINTS = 24;
+const CHECK_LOG_FETCH_LIMIT = 240;
 
 function toHealthStatus(status: HealthStatus): "healthy" | "partial" | "unhealthy" | "unknown" {
   switch (status) {
@@ -138,6 +141,7 @@ export async function GET(request: NextRequest) {
             checkLogs: {
               select: {
                 id: true,
+                checkRunId: true,
                 status: true,
                 latency: true,
                 statusCode: true,
@@ -147,7 +151,7 @@ export async function GET(request: NextRequest) {
                 createdAt: true,
               },
               orderBy: { createdAt: "desc" },
-              take: 24,
+              take: CHECK_LOG_FETCH_LIMIT,
             },
           },
         },
@@ -194,7 +198,7 @@ export async function GET(request: NextRequest) {
         lastLatency: model.lastLatency,
         lastCheckedAt: model.lastCheckedAt,
         endpointStatuses: model.modelEndpoints,
-        checkLogs: model.checkLogs,
+        checkLogs: aggregateCheckLogsByRun(model.checkLogs, HEATMAP_POINTS),
       })),
     }));
 

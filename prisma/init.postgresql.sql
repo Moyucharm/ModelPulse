@@ -79,6 +79,7 @@ CREATE TABLE IF NOT EXISTS "models" (
 CREATE TABLE IF NOT EXISTS "check_logs" (
   "id" TEXT NOT NULL,
   "model_id" TEXT NOT NULL,
+  "check_run_id" TEXT,
   "endpoint_type" "EndpointType" NOT NULL,
   "status" "CheckStatus" NOT NULL,
   "latency" INTEGER,
@@ -159,6 +160,7 @@ ALTER TABLE "check_logs" ADD COLUMN IF NOT EXISTS "latency" INTEGER;
 ALTER TABLE "check_logs" ADD COLUMN IF NOT EXISTS "status_code" INTEGER;
 ALTER TABLE "check_logs" ADD COLUMN IF NOT EXISTS "error_msg" TEXT;
 ALTER TABLE "check_logs" ADD COLUMN IF NOT EXISTS "response_content" TEXT;
+ALTER TABLE "check_logs" ADD COLUMN IF NOT EXISTS "check_run_id" TEXT;
 
 -- scheduler_config: 后加的检测范围控制字段
 ALTER TABLE "scheduler_config" ADD COLUMN IF NOT EXISTS "timezone" VARCHAR(50) NOT NULL DEFAULT 'Asia/Shanghai';
@@ -224,6 +226,7 @@ END $$;
 -- ==========================================
 
 CREATE INDEX IF NOT EXISTS "check_logs_model_id_created_at_idx" ON "check_logs"("model_id", "created_at");
+CREATE INDEX IF NOT EXISTS "check_logs_model_id_check_run_id_created_at_idx" ON "check_logs"("model_id", "check_run_id", "created_at");
 CREATE INDEX IF NOT EXISTS "check_logs_created_at_idx" ON "check_logs"("created_at");
 CREATE INDEX IF NOT EXISTS "channel_keys_channel_id_idx" ON "channel_keys"("channel_id");
 CREATE INDEX IF NOT EXISTS "models_channel_key_id_idx" ON "models"("channel_key_id");

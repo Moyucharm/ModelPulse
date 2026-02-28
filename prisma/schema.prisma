@@ -49,6 +49,7 @@ model Model {
 model CheckLog {
   id              String          @id @default(cuid())
   modelId         String          @map("model_id")
+  checkRunId      String?         @map("check_run_id")
   endpointType    EndpointType    @map("endpoint_type")
   status          CheckStatus
   latency         Int?
@@ -59,6 +60,7 @@ model CheckLog {
   model           Model           @relation(fields: [modelId], references: [id], onDelete: Cascade)
 
   @@index([modelId, createdAt])
+  @@index([modelId, checkRunId, createdAt])
   @@index([createdAt])
   @@map("check_logs")
 }

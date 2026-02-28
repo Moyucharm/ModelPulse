@@ -1,6 +1,9 @@
 import { PrismaClient } from "@/generated/prisma";
 import type { SqlDriverAdapterFactory } from "@prisma/driver-adapter-utils";
 import * as BetterSqliteAdapter from "@prisma/adapter-better-sqlite3";
+import { mkdirSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { encryptApiKey, decryptApiKey } from "@/lib/crypto";
 
 // ---------------------------------------------------------------------------
@@ -27,6 +30,40 @@ if (typeof adapterCtorCandidate !== "function") {
 }
 
 const sqliteUrl = process.env.DATABASE_URL || "file:./data/model-check.db";
+
+function ensureSqliteDirectory(databaseUrl: string): void {
+  if (!databaseUrl.startsWith("file:")) {
+    return;
+  }
+
+  let dbFilePath = "";
+
+  if (databaseUrl.startsWith("file://")) {
+    try {
+      dbFilePath = fileURLToPath(new URL(databaseUrl));
+    } catch {
+      dbFilePath = "";
+    }
+  }
+
+  if (!dbFilePath) {
+    const rawPath = databaseUrl.slice("file:".length).split(/[?#]/, 1)[0] || "";
+    if (!rawPath || rawPath === ":memory:") {
+      return;
+    }
+    dbFilePath = path.isAbsolute(rawPath)
+      ? rawPath
+      : path.resolve(process.cwd(), rawPath);
+  }
+
+  const dbDir = path.dirname(dbFilePath);
+  if (dbDir && dbDir !== ".") {
+    mkdirSync(dbDir, { recursive: true });
+  }
+}
+
+ensureSqliteDirectory(sqliteUrl);
+
 const sqliteAdapter = new (adapterCtorCandidate as BetterSqliteCtor)(
   { url: sqliteUrl },
   { timestampFormat: "iso8601" }

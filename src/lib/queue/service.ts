@@ -1,5 +1,6 @@
 // Detection Service - Orchestrates detection jobs
 
+import { randomUUID } from "node:crypto";
 import prisma from "@/lib/prisma";
 import { getEndpointsToTest, fetchModels } from "@/lib/detection";
 import { resetModelsDetectionState } from "@/lib/detection/model-state";
@@ -63,6 +64,7 @@ async function buildJobsForModels(
       ? keyMap.get(model.channelKeyId)!
       : channel.apiKey;
 
+    const checkRunId = randomUUID();
     const endpointsToTest = getEndpointsToTest(model.modelName);
 
     for (const endpointType of endpointsToTest) {
@@ -70,6 +72,7 @@ async function buildJobsForModels(
         channelId: channel.id,
         modelId: model.id,
         modelName: model.modelName,
+        checkRunId,
         baseUrl: channel.baseUrl,
         apiKey,
         proxy: channel.proxy,
@@ -253,11 +256,13 @@ export async function triggerModelDetection(modelId: string): Promise<{
 
   // Get all endpoints to test for this model
   const endpointsToTest = getEndpointsToTest(model.modelName);
+  const checkRunId = randomUUID();
 
   const jobs: DetectionJobData[] = endpointsToTest.map((endpointType) => ({
     channelId: model.channel.id,
     modelId: model.id,
     modelName: model.modelName,
+    checkRunId,
     baseUrl: model.channel.baseUrl,
     apiKey,
     proxy: model.channel.proxy,

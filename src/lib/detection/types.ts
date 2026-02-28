@@ -33,6 +33,7 @@ export interface DetectionJobData {
   channelId: string;
   modelId: string;
   modelName: string;
+  checkRunId: string;
   baseUrl: string;
   apiKey: string;
   proxy?: string | null;

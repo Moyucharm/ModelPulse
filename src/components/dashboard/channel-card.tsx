@@ -23,14 +23,19 @@ import { useToast } from "@/components/ui/toast";
 export type ViewMode = "list" | "card";
 
 interface CheckLog {
-  id: string;
-  status: "SUCCESS" | "FAIL";
+  runId: string | null;
+  status: "SUCCESS" | "PARTIAL" | "FAIL";
   latency: number | null;
-  statusCode: number | null;
-  endpointType: string;
-  responseContent: string | null;
-  errorMsg: string | null;
   createdAt: string;
+  details: Array<{
+    endpointType: string;
+    status: "SUCCESS" | "FAIL";
+    latency: number | null;
+    statusCode: number | null;
+    responseContent: string | null;
+    errorMsg: string | null;
+    createdAt: string;
+  }>;
 }
 
 interface EndpointStatus {

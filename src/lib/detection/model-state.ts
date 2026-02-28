@@ -81,6 +81,7 @@ export async function persistDetectionResult(
     await tx.checkLog.create({
       data: {
         modelId: data.modelId,
+        checkRunId: data.checkRunId,
         endpointType: result.endpointType,
         status: result.status,
         latency: result.latency,
