@@ -2,7 +2,7 @@
 
 import { randomUUID } from "node:crypto";
 import prisma from "@/lib/prisma";
-import { getEndpointsToTest, fetchModels } from "@/lib/detection";
+import { fetchModels } from "@/lib/detection";
 import { resetModelsDetectionState } from "@/lib/detection/model-state";
 import {
   addDetectionJobsBulk,
@@ -12,6 +12,64 @@ import {
   isQueueRunning,
 } from "./queue";
 import type { DetectionJobData } from "@/lib/detection/types";
+import { getEndpointsToTestWithCliSwitches } from "./endpoint-filter";
+
+type ModelCliConfig = {
+  gemini: boolean;
+  codex: boolean;
+  claude: boolean;
+};
+
+type SelectedModelCliConfig = Record<string, ModelCliConfig>;
+
+type PrismaModelCliSwitches = {
+  enableGeminiCliDetection: boolean;
+  enableCodexDetection: boolean;
+  enableClaudeDetection: boolean;
+};
+
+const DEFAULT_MODEL_CLI_CONFIG: ModelCliConfig = {
+  gemini: true,
+  codex: true,
+  claude: true,
+};
+
+function normalizeModelCliConfig(config: Partial<ModelCliConfig> | undefined): ModelCliConfig {
+  return {
+    gemini: typeof config?.gemini === "boolean" ? config.gemini : true,
+    codex: typeof config?.codex === "boolean" ? config.codex : true,
+    claude: typeof config?.claude === "boolean" ? config.claude : true,
+  };
+}
+
+function resolveModelCliConfig(
+  modelName: string,
+  selectedModelCliConfig?: SelectedModelCliConfig
+): ModelCliConfig {
+  if (!selectedModelCliConfig) {
+    return DEFAULT_MODEL_CLI_CONFIG;
+  }
+  return normalizeModelCliConfig(selectedModelCliConfig[modelName]);
+}
+
+function toPrismaCliSwitches(config: ModelCliConfig): PrismaModelCliSwitches {
+  return {
+    enableGeminiCliDetection: config.gemini,
+    enableCodexDetection: config.codex,
+    enableClaudeDetection: config.claude,
+  };
+}
+
+function hasCliSwitchesChanged(
+  model: PrismaModelCliSwitches,
+  next: PrismaModelCliSwitches
+): boolean {
+  return (
+    model.enableGeminiCliDetection !== next.enableGeminiCliDetection ||
+    model.enableCodexDetection !== next.enableCodexDetection ||
+    model.enableClaudeDetection !== next.enableClaudeDetection
+  );
+}
 
 /**
  * Resolve the correct apiKey for a model.
@@ -37,7 +95,14 @@ async function resolveApiKey(
  */
 async function buildJobsForModels(
   channel: { id: string; baseUrl: string; apiKey: string; proxy: string | null },
-  models: { id: string; modelName: string; channelKeyId?: string | null }[]
+  models: Array<{
+    id: string;
+    modelName: string;
+    channelKeyId?: string | null;
+    enableGeminiCliDetection: boolean;
+    enableCodexDetection: boolean;
+    enableClaudeDetection: boolean;
+  }>
 ): Promise<DetectionJobData[]> {
   const jobs: DetectionJobData[] = [];
 
@@ -65,7 +130,16 @@ async function buildJobsForModels(
       : channel.apiKey;
 
     const checkRunId = randomUUID();
-    const endpointsToTest = getEndpointsToTest(model.modelName);
+    const endpointsToTest = getEndpointsToTestWithCliSwitches({
+      modelName: model.modelName,
+      enableGeminiCliDetection: model.enableGeminiCliDetection,
+      enableCodexDetection: model.enableCodexDetection,
+      enableClaudeDetection: model.enableClaudeDetection,
+    });
+
+    if (endpointsToTest.length === 0) {
+      continue;
+    }
 
     for (const endpointType of endpointsToTest) {
       jobs.push({
@@ -135,6 +209,9 @@ export async function triggerFullDetection(): Promise<{
           id: true,
           modelName: true,
           channelKeyId: true,
+          enableGeminiCliDetection: true,
+          enableCodexDetection: true,
+          enableClaudeDetection: true,
         },
       },
     },
@@ -188,6 +265,9 @@ export async function triggerChannelDetection(
           id: true,
           modelName: true,
           channelKeyId: true,
+          enableGeminiCliDetection: true,
+          enableCodexDetection: true,
+          enableClaudeDetection: true,
         },
       },
     },
@@ -255,7 +335,15 @@ export async function triggerModelDetection(modelId: string): Promise<{
   const apiKey = await resolveApiKey(model, model.channel.apiKey);
 
   // Get all endpoints to test for this model
-  const endpointsToTest = getEndpointsToTest(model.modelName);
+  const endpointsToTest = getEndpointsToTestWithCliSwitches({
+    modelName: model.modelName,
+    enableGeminiCliDetection: model.enableGeminiCliDetection,
+    enableCodexDetection: model.enableCodexDetection,
+    enableClaudeDetection: model.enableClaudeDetection,
+  });
+  if (endpointsToTest.length === 0) {
+    return { jobIds: [] };
+  }
   const checkRunId = randomUUID();
 
   const jobs: DetectionJobData[] = endpointsToTest.map((endpointType) => ({
@@ -281,7 +369,8 @@ export async function triggerModelDetection(modelId: string): Promise<{
 export async function syncChannelModels(
   channelId: string,
   selectedModels?: string[],
-  selectedModelPairs?: Array<{ modelName: string; keyId: string | null }>
+  selectedModelPairs?: Array<{ modelName: string; keyId: string | null }>,
+  selectedModelCliConfig?: SelectedModelCliConfig
 ): Promise<{
   added: number;
   removed: number;
@@ -324,7 +413,14 @@ export async function syncChannelModels(
 
       const existingModels = await prisma.model.findMany({
         where: { channelId },
-        select: { id: true, modelName: true, channelKeyId: true },
+        select: {
+          id: true,
+          modelName: true,
+          channelKeyId: true,
+          enableGeminiCliDetection: true,
+          enableCodexDetection: true,
+          enableClaudeDetection: true,
+        },
       });
 
       const targetSignatureSet = new Set(
@@ -342,15 +438,17 @@ export async function syncChannelModels(
         removedCount = result.count;
       }
 
-      const existingSignatureSet = new Set(
-        existingModels.map((m) => getModelSignature(m.modelName, m.channelKeyId))
+      const existingSignatureMap = new Map(
+        existingModels.map((m) => [getModelSignature(m.modelName, m.channelKeyId), m])
       );
+
       const toCreate = targetPairs
-        .filter((m) => !existingSignatureSet.has(getModelSignature(m.modelName, m.channelKeyId)))
+        .filter((m) => !existingSignatureMap.has(getModelSignature(m.modelName, m.channelKeyId)))
         .map((m) => ({
           channelId,
           modelName: m.modelName,
           channelKeyId: m.channelKeyId,
+          ...toPrismaCliSwitches(resolveModelCliConfig(m.modelName, selectedModelCliConfig)),
         }));
 
       let addedCount = 0;
@@ -359,6 +457,31 @@ export async function syncChannelModels(
           data: toCreate,
         });
         addedCount = result.count;
+      }
+
+      const updates: Array<ReturnType<typeof prisma.model.update>> = [];
+      for (const target of targetPairs) {
+        const signature = getModelSignature(target.modelName, target.channelKeyId);
+        const existing = existingSignatureMap.get(signature);
+        if (!existing) continue;
+
+        const nextSwitches = toPrismaCliSwitches(
+          resolveModelCliConfig(target.modelName, selectedModelCliConfig)
+        );
+        if (!hasCliSwitchesChanged(existing, nextSwitches)) {
+          continue;
+        }
+
+        updates.push(
+          prisma.model.update({
+            where: { id: existing.id },
+            data: nextSwitches,
+          })
+        );
+      }
+
+      if (updates.length > 0) {
+        await prisma.$transaction(updates);
       }
 
       return {
@@ -370,7 +493,13 @@ export async function syncChannelModels(
 
     const existingModels = await prisma.model.findMany({
       where: { channelId },
-      select: { id: true, modelName: true },
+      select: {
+        id: true,
+        modelName: true,
+        enableGeminiCliDetection: true,
+        enableCodexDetection: true,
+        enableClaudeDetection: true,
+      },
     });
 
     const selectedNameSet = new Set(uniqueSelectedModels);
@@ -386,12 +515,13 @@ export async function syncChannelModels(
       removedCount = result.count;
     }
 
-    const existingNameSet = new Set(existingModels.map((m) => m.modelName));
+    const existingNameMap = new Map(existingModels.map((m) => [m.modelName, m]));
     const toCreate = uniqueSelectedModels
-      .filter((modelName) => !existingNameSet.has(modelName))
+      .filter((modelName) => !existingNameMap.has(modelName))
       .map((modelName) => ({
         channelId,
         modelName,
+        ...toPrismaCliSwitches(resolveModelCliConfig(modelName, selectedModelCliConfig)),
       }));
 
     let addedCount = 0;
@@ -400,6 +530,30 @@ export async function syncChannelModels(
         data: toCreate,
       });
       addedCount = result.count;
+    }
+
+    const updates: Array<ReturnType<typeof prisma.model.update>> = [];
+    for (const modelName of uniqueSelectedModels) {
+      const existing = existingNameMap.get(modelName);
+      if (!existing) continue;
+
+      const nextSwitches = toPrismaCliSwitches(
+        resolveModelCliConfig(modelName, selectedModelCliConfig)
+      );
+      if (!hasCliSwitchesChanged(existing, nextSwitches)) {
+        continue;
+      }
+
+      updates.push(
+        prisma.model.update({
+          where: { id: existing.id },
+          data: nextSwitches,
+        })
+      );
+    }
+
+    if (updates.length > 0) {
+      await prisma.$transaction(updates);
     }
 
     return {
@@ -649,6 +803,9 @@ export async function triggerSelectiveDetection(
           id: true,
           modelName: true,
           channelKeyId: true,
+          enableGeminiCliDetection: true,
+          enableCodexDetection: true,
+          enableClaudeDetection: true,
         },
       },
     },

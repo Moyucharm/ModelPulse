@@ -67,6 +67,9 @@ CREATE TABLE IF NOT EXISTS "models" (
   "last_status" BOOLEAN,
   "last_latency" INTEGER,
   "last_checked_at" TIMESTAMP(3),
+  "enable_gemini_cli_detection" BOOLEAN NOT NULL DEFAULT true,
+  "enable_codex_detection" BOOLEAN NOT NULL DEFAULT true,
+  "enable_claude_detection" BOOLEAN NOT NULL DEFAULT true,
   "channel_key_id" TEXT,
   "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -153,6 +156,9 @@ ALTER TABLE "models" ADD COLUMN IF NOT EXISTS "detected_endpoints" TEXT[] NOT NU
 ALTER TABLE "models" ADD COLUMN IF NOT EXISTS "last_status" BOOLEAN;
 ALTER TABLE "models" ADD COLUMN IF NOT EXISTS "last_latency" INTEGER;
 ALTER TABLE "models" ADD COLUMN IF NOT EXISTS "last_checked_at" TIMESTAMP(3);
+ALTER TABLE "models" ADD COLUMN IF NOT EXISTS "enable_gemini_cli_detection" BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE "models" ADD COLUMN IF NOT EXISTS "enable_codex_detection" BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE "models" ADD COLUMN IF NOT EXISTS "enable_claude_detection" BOOLEAN NOT NULL DEFAULT true;
 ALTER TABLE "models" ADD COLUMN IF NOT EXISTS "channel_key_id" TEXT;
 
 -- check_logs: 后加的状态码、响应内容字段

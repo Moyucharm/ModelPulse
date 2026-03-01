@@ -3,6 +3,10 @@
 
 import { EndpointType } from "@/generated/prisma";
 import type { EndpointDetection } from "./types";
+import {
+  getPreferredCliEndpoint,
+  isCodexOnlyModel,
+} from "./cli-capability";
 
 // Default detection prompt
 const DETECT_PROMPT = process.env.DETECT_PROMPT || "1+1=2? yes or no";
@@ -12,30 +16,12 @@ const DETECT_PROMPT = process.env.DETECT_PROMPT || "1+1=2? yes or no";
  * Returns null if the model only supports CHAT
  */
 export function detectCliEndpointType(modelName: string): EndpointType | null {
-  const name = modelName.toLowerCase();
-
-  // Models containing "codex" must use Responses API only
-  if (name.includes("codex")) {
-    return EndpointType.CODEX;
+  const endpoint = getPreferredCliEndpoint(modelName);
+  if (!endpoint) {
+    return null;
   }
 
-  if (name.includes("claude")) {
-    return EndpointType.CLAUDE;
-  }
-
-  if (name.includes("gemini")) {
-    return EndpointType.GEMINI;
-  }
-
-  // OpenAI Responses API (2025+):
-  // gpt-5.1, gpt-5.2, and gpt-5.3 series use the new Responses API (CODEX)
-  // gpt-4o, gpt-4, o1, o3, etc. still use Chat Completions API
-  if (/gpt-5\.[123]/.test(name)) {
-    return EndpointType.CODEX;
-  }
-
-  // No CLI endpoint for this model
-  return null;
+  return EndpointType[endpoint];
 }
 
 /**
@@ -62,10 +48,8 @@ export function isImageModel(modelName: string): boolean {
  * Image models only test IMAGE endpoint, others test CHAT plus CLI endpoint if applicable
  */
 export function getEndpointsToTest(modelName: string): EndpointType[] {
-  const name = modelName.toLowerCase();
-
   // Any model containing "codex" should only test Responses endpoint
-  if (name.includes("codex")) {
+  if (isCodexOnlyModel(modelName)) {
     return [EndpointType.CODEX];
   }
 

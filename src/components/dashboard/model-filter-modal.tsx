@@ -19,6 +19,7 @@ import {
 import { useAuth } from "@/components/providers/auth-provider";
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
+import { getCliCapabilities } from "@/lib/detection/cli-capability";
 
 interface Keyword {
   id: string;
@@ -26,10 +27,44 @@ interface Keyword {
   enabled: boolean;
 }
 
+type CliToggleKey = "gemini" | "codex" | "claude";
+
+type ModelCliConfig = {
+  gemini: boolean;
+  codex: boolean;
+  claude: boolean;
+};
+
+const DEFAULT_MODEL_CLI_CONFIG: ModelCliConfig = {
+  gemini: true,
+  codex: true,
+  claude: true,
+};
+
+const CLI_TOGGLE_META: Array<{ key: CliToggleKey; label: string }> = [
+  { key: "gemini", label: "Gemini CLI" },
+  { key: "codex", label: "Codex" },
+  { key: "claude", label: "Claude Code" },
+];
+
+function normalizeModelCliConfig(input: Partial<ModelCliConfig> | undefined): ModelCliConfig {
+  return {
+    gemini: typeof input?.gemini === "boolean" ? input.gemini : true,
+    codex: typeof input?.codex === "boolean" ? input.codex : true,
+    claude: typeof input?.claude === "boolean" ? input.claude : true,
+  };
+}
+
+function getSupportedCliToggleMeta(modelName: string): Array<{ key: CliToggleKey; label: string }> {
+  const capabilities = getCliCapabilities(modelName);
+  return CLI_TOGGLE_META.filter(({ key }) => capabilities[key]);
+}
+
 interface ChannelModelData {
   allModels: string[];
   selectedModels: Set<string>;
   modelPairs: Array<{ modelName: string; keyId: string | null }>;
+  selectedModelCliConfig: Record<string, ModelCliConfig>;
 }
 
 interface ModelFilterModalProps {
@@ -109,6 +144,9 @@ export function ModelFilterModal({
             const data = await res.json();
             const models = new Set<string>();
             const modelPairMap = new Map<string, { modelName: string; keyId: string | null }>();
+            const existingModelCliConfigRaw = data.existingModelCliConfig as
+              | Record<string, Partial<ModelCliConfig>>
+              | undefined;
             for (const kr of (data.results || []) as { valid: boolean; keyId: string | null; models: string[] }[]) {
               if (kr.valid) {
                 const keyId = typeof kr.keyId === "string" ? kr.keyId : null;
@@ -127,11 +165,19 @@ export function ModelFilterModal({
             const preSelected = new Set<string>(
               existingModels.filter((m: string) => models.has(m))
             );
+            const selectedModelCliConfig: Record<string, ModelCliConfig> = {};
+            for (const modelName of preSelected) {
+              selectedModelCliConfig[modelName] = normalizeModelCliConfig(
+                existingModelCliConfigRaw?.[modelName]
+              );
+            }
+
             return {
               channelId: ch.id,
               models: allModels,
               preSelected,
               modelPairs: Array.from(modelPairMap.values()),
+              selectedModelCliConfig,
             };
           })
         );
@@ -143,9 +189,15 @@ export function ModelFilterModal({
               allModels: result.value.models,
               selectedModels: result.value.preSelected,
               modelPairs: result.value.modelPairs,
+              selectedModelCliConfig: result.value.selectedModelCliConfig,
             });
           } else {
-            newData.set(ch.id, { allModels: [], selectedModels: new Set(), modelPairs: [] });
+            newData.set(ch.id, {
+              allModels: [],
+              selectedModels: new Set(),
+              modelPairs: [],
+              selectedModelCliConfig: {},
+            });
           }
         });
       }
@@ -216,6 +268,57 @@ export function ModelFilterModal({
   );
 
   // Model actions
+  const ensureCliConfigForModels = useCallback(
+    (
+      selectedModelCliConfig: Record<string, ModelCliConfig>,
+      modelNames: Iterable<string>
+    ) => {
+      let nextConfig = selectedModelCliConfig;
+      for (const modelName of modelNames) {
+        if (nextConfig[modelName]) {
+          continue;
+        }
+        if (nextConfig === selectedModelCliConfig) {
+          nextConfig = { ...selectedModelCliConfig };
+        }
+        nextConfig[modelName] = { ...DEFAULT_MODEL_CLI_CONFIG };
+      }
+      return nextConfig;
+    },
+    []
+  );
+
+  const getModelCliConfig = useCallback(
+    (chId: string, modelName: string): ModelCliConfig => {
+      const d = channelData.get(chId);
+      return normalizeModelCliConfig(d?.selectedModelCliConfig[modelName]);
+    },
+    [channelData]
+  );
+
+  const toggleModelCliConfig = (chId: string, modelName: string, key: CliToggleKey) => {
+    setChannelData((prev) => {
+      const next = new Map(prev);
+      const d = next.get(chId);
+      if (!d) return next;
+
+      const current = normalizeModelCliConfig(d.selectedModelCliConfig[modelName]);
+      const updated: ModelCliConfig = {
+        ...current,
+        [key]: !current[key],
+      };
+
+      next.set(chId, {
+        ...d,
+        selectedModelCliConfig: {
+          ...d.selectedModelCliConfig,
+          [modelName]: updated,
+        },
+      });
+      return next;
+    });
+  };
+
   const selectModel = (chId: string, name: string) => {
     setChannelData((prev) => {
       const next = new Map(prev);
@@ -223,7 +326,11 @@ export function ModelFilterModal({
       if (d) {
         const s = new Set(d.selectedModels);
         s.add(name);
-        next.set(chId, { ...d, selectedModels: s });
+        next.set(chId, {
+          ...d,
+          selectedModels: s,
+          selectedModelCliConfig: ensureCliConfigForModels(d.selectedModelCliConfig, [name]),
+        });
       }
       return next;
     });
@@ -248,10 +355,18 @@ export function ModelFilterModal({
       const d = next.get(chId);
       if (d) {
         const s = new Set(d.selectedModels);
+        const newlySelected: string[] = [];
         for (const n of d.allModels) {
-          if (!s.has(n) && matchesFilter(n)) s.add(n);
+          if (!s.has(n) && matchesFilter(n)) {
+            s.add(n);
+            newlySelected.push(n);
+          }
         }
-        next.set(chId, { ...d, selectedModels: s });
+        next.set(chId, {
+          ...d,
+          selectedModels: s,
+          selectedModelCliConfig: ensureCliConfigForModels(d.selectedModelCliConfig, newlySelected),
+        });
       }
       return next;
     });
@@ -271,10 +386,18 @@ export function ModelFilterModal({
       const next = new Map(prev);
       for (const [chId, d] of next) {
         const s = new Set(d.selectedModels);
+        const newlySelected: string[] = [];
         for (const n of d.allModels) {
-          if (!s.has(n) && matchesFilter(n)) s.add(n);
+          if (!s.has(n) && matchesFilter(n)) {
+            s.add(n);
+            newlySelected.push(n);
+          }
         }
-        next.set(chId, { ...d, selectedModels: s });
+        next.set(chId, {
+          ...d,
+          selectedModels: s,
+          selectedModelCliConfig: ensureCliConfigForModels(d.selectedModelCliConfig, newlySelected),
+        });
       }
       return next;
     });
@@ -306,6 +429,7 @@ export function ModelFilterModal({
         allModels: [],
         selectedModels: new Set<string>(),
         modelPairs: [] as Array<{ modelName: string; keyId: string | null }>,
+        selectedModelCliConfig: {} as Record<string, ModelCliConfig>,
       };
 
       const allModels = Array.from(new Set([...current.allModels, modelName])).sort();
@@ -316,7 +440,12 @@ export function ModelFilterModal({
         ? current.modelPairs
         : [...current.modelPairs, { modelName, keyId: null }];
 
-      next.set(channelId, { allModels, selectedModels, modelPairs });
+      next.set(channelId, {
+        allModels,
+        selectedModels,
+        modelPairs,
+        selectedModelCliConfig: ensureCliConfigForModels(current.selectedModelCliConfig, [modelName]),
+      });
       return next;
     });
 
@@ -455,6 +584,12 @@ export function ModelFilterModal({
             const selectedModelPairs = d
               ? d.modelPairs.filter((pair) => d.selectedModels.has(pair.modelName))
               : [];
+            const selectedModelCliConfig = d
+              ? selected.reduce<Record<string, ModelCliConfig>>((acc, modelName) => {
+                acc[modelName] = normalizeModelCliConfig(d.selectedModelCliConfig[modelName]);
+                return acc;
+              }, {})
+              : {};
 
             if (selected.length === 0) {
               console.warn("[sync] No models selected for channel", ch.id, "channelData keys:", Array.from(channelDataRef.current.keys()));
@@ -466,6 +601,7 @@ export function ModelFilterModal({
               body: JSON.stringify({
                 selectedModels: selected,
                 selectedModelPairs,
+                selectedModelCliConfig,
               }),
             });
             if (!res.ok) {
@@ -589,6 +725,40 @@ export function ModelFilterModal({
     ));
   };
 
+  const renderCliToggleControls = (chId: string, modelName: string) => {
+    const supportedToggles = getSupportedCliToggleMeta(modelName);
+    if (supportedToggles.length === 0) {
+      return null;
+    }
+
+    const cliConfig = getModelCliConfig(chId, modelName);
+    return (
+      <div className="mt-1 flex flex-wrap items-center gap-1">
+        {supportedToggles.map(({ key, label }) => {
+          const enabled = cliConfig[key];
+          return (
+            <button
+              key={`${modelName}-${key}`}
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleModelCliConfig(chId, modelName, key);
+              }}
+              className={cn(
+                "rounded border px-1.5 py-0.5 text-[11px] transition-colors",
+                enabled
+                  ? "border-emerald-300 bg-emerald-500/10 text-emerald-700 dark:border-emerald-700 dark:text-emerald-300"
+                  : "border-rose-300 bg-rose-500/10 text-rose-700 dark:border-rose-700 dark:text-rose-300"
+              )}
+            >
+              {label}: {enabled ? "开" : "关"}
+            </button>
+          );
+        })}
+      </div>
+    );
+  };
+
   // Render channel model list for right column (selected)
   const renderSelectedList = () => {
     if (isMultiChannel) {
@@ -618,7 +788,10 @@ export function ModelFilterModal({
                 onClick={() => deselectModel(ch.id, name)}
                 className="flex items-center gap-2 px-3 py-1 hover:bg-red-500/5 cursor-pointer transition-colors border-b border-border last:border-b-0"
               >
-                <span className="text-sm font-mono flex-1 truncate">{name}</span>
+                <div className="min-w-0 flex-1">
+                  <span className="text-sm font-mono truncate block">{name}</span>
+                  {renderCliToggleControls(ch.id, name)}
+                </div>
                 <Minus className="h-3.5 w-3.5 text-red-500 shrink-0" />
               </div>
             ))}
@@ -638,7 +811,10 @@ export function ModelFilterModal({
         onClick={() => deselectModel(chId, name)}
         className="flex items-center gap-2 px-3 py-1.5 hover:bg-red-500/5 cursor-pointer transition-colors border-b border-border last:border-b-0"
       >
-        <span className="text-sm font-mono flex-1 truncate">{name}</span>
+        <div className="min-w-0 flex-1">
+          <span className="text-sm font-mono truncate block">{name}</span>
+          {renderCliToggleControls(chId, name)}
+        </div>
         <Minus className="h-3.5 w-3.5 text-red-500 shrink-0" />
       </div>
     ));
