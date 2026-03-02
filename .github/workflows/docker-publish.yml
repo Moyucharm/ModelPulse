@@ -58,4 +58,6 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          platforms: linux/amd64,linux/arm64
+          # better-sqlite3 native rebuild can crash under QEMU arm64 emulation (exit 132)
+          # keep amd64 builds stable in CI; use native arm64 runner if arm image is required
+          platforms: linux/amd64
