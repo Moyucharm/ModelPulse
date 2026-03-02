@@ -41,6 +41,8 @@ const DEFAULT_MODEL_CLI_CONFIG: ModelCliConfig = {
   claude: true,
 };
 
+const SYNC_REQUEST_TIMEOUT_MS = 120_000;
+
 const CLI_TOGGLE_META: Array<{ key: CliToggleKey; label: string }> = [
   { key: "gemini", label: "Gemini CLI" },
   { key: "codex", label: "Codex" },
@@ -595,15 +597,28 @@ export function ModelFilterModal({
               console.warn("[sync] No models selected for channel", ch.id, "channelData keys:", Array.from(channelDataRef.current.keys()));
             }
 
-            const res = await fetch(`/api/channel/${ch.id}/sync`, {
-              method: "POST",
-              headers,
-              body: JSON.stringify({
-                selectedModels: selected,
-                selectedModelPairs,
-                selectedModelCliConfig,
-              }),
-            });
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), SYNC_REQUEST_TIMEOUT_MS);
+            let res: Response;
+            try {
+              res = await fetch(`/api/channel/${ch.id}/sync`, {
+                method: "POST",
+                headers,
+                signal: controller.signal,
+                body: JSON.stringify({
+                  selectedModels: selected,
+                  selectedModelPairs,
+                  selectedModelCliConfig,
+                }),
+              });
+            } catch (error) {
+              if (error instanceof DOMException && error.name === "AbortError") {
+                throw new Error(`渠道 ${ch.name} 同步超时（>${Math.round(SYNC_REQUEST_TIMEOUT_MS / 1000)}秒）`);
+              }
+              throw error;
+            } finally {
+              clearTimeout(timeoutId);
+            }
             if (!res.ok) {
               const errData = await res.json().catch(() => ({}));
               throw new Error(errData.error || `sync failed (${res.status})`);

@@ -11,6 +11,18 @@ const pkg = JSON.parse(readFileSync("./package.json", "utf-8"));
 const nextConfig: NextConfig = {
   // Disable x-powered-by header for security
   poweredByHeader: false,
+  // VSCode/SSH port forwarding usually proxies through 127.0.0.1.
+  // Explicitly allow these origins in dev to avoid cross-origin warnings.
+  allowedDevOrigins: [
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:3001",
+    "http://localhost:3000",
+    "http://localhost:3001",
+  ],
+  // Keep heavy Node-only packages out of webpack server bundling in dev.
+  // This avoids BullMQ's dynamic require warning and significantly reduces
+  // memory pressure while compiling API routes.
+  serverExternalPackages: ["bullmq", "ioredis"],
   // Avoid Windows traced-file copy warnings by default.
   ...(forceStandalone || (!isWindows && !disableStandalone)
     ? { output: "standalone" as const }

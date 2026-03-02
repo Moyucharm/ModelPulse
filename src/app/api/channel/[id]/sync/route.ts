@@ -14,6 +14,8 @@ type SelectedModelCliConfig = Record<
   { gemini: boolean; codex: boolean; claude: boolean }
 >;
 
+const SYNC_TIMEOUT_MS = 120_000;
+
 function normalizeCliFlag(value: unknown): boolean {
   return typeof value === "boolean" ? value : true;
 }
@@ -83,12 +85,21 @@ export async function POST(
       console.log(`[sync] channel=${id} body parse failed, falling back to API fetch`);
     }
 
-    const result = await syncChannelModels(
-      id,
-      selectedModels,
-      selectedModelPairs,
-      selectedModelCliConfig
-    );
+    const result = await Promise.race([
+      syncChannelModels(
+        id,
+        selectedModels,
+        selectedModelPairs,
+        selectedModelCliConfig
+      ),
+      new Promise<never>((_, reject) => {
+        const timeoutId = setTimeout(() => {
+          reject(new Error(`同步超时（>${Math.round(SYNC_TIMEOUT_MS / 1000)}秒）`));
+        }, SYNC_TIMEOUT_MS);
+        // Avoid keeping the event loop alive only for this timeout.
+        timeoutId.unref?.();
+      }),
+    ]);
 
     return NextResponse.json({
       success: true,

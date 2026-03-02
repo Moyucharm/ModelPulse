@@ -20,8 +20,7 @@ type BetterSqliteCtor = new (
 ) => SqlDriverAdapterFactory;
 
 const adapterCtorCandidate =
-  (BetterSqliteAdapter as Record<string, unknown>).PrismaBetterSqlite3 ??
-  (BetterSqliteAdapter as Record<string, unknown>).PrismaBetterSQLite3;
+  (BetterSqliteAdapter as Record<string, unknown>)["PrismaBetterSqlite3"];
 
 if (typeof adapterCtorCandidate !== "function") {
   throw new Error(

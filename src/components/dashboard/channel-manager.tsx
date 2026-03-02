@@ -72,6 +72,7 @@ const initialFormData: ChannelFormData = {
   proxy: "",
   multiKeys: "",
 };
+const SYNC_REQUEST_TIMEOUT_MS = 120_000;
 
 function getChannelBorderClass(channel: Channel): string {
   if ((channel._count?.models ?? 0) === 0) {
@@ -703,17 +704,29 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
       return next;
     });
     try {
-      const response = await fetch(`/api/channel/${id}/sync`, {
-        method: "POST",
-        headers,
-      });
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), SYNC_REQUEST_TIMEOUT_MS);
+      let response: Response;
+      try {
+        response = await fetch(`/api/channel/${id}/sync`, {
+          method: "POST",
+          headers,
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeoutId);
+      }
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "同步失败");
 
       toast(`同步完成，保存了 ${data.total} 个模型`, "success");
     } catch (err) {
       // Show error message on the channel card instead of global error
-      const message = err instanceof Error ? err.message : "同步失败";
+      const message = err instanceof DOMException && err.name === "AbortError"
+        ? `同步超时（>${Math.round(SYNC_REQUEST_TIMEOUT_MS / 1000)}秒）`
+        : err instanceof Error
+          ? err.message
+          : "同步失败";
       setSyncStatus((prev) => ({ ...prev, [id]: { message, type: "error" } }));
 
       // Auto clear after 8 seconds for errors
@@ -744,10 +757,23 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
         const batch = channels.slice(index, index + concurrency);
         const results = await Promise.allSettled(
           batch.map(async (channel) => {
-            const response = await fetch(`/api/channel/${channel.id}/sync`, {
-              method: "POST",
-              headers,
-            });
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), SYNC_REQUEST_TIMEOUT_MS);
+            let response: Response;
+            try {
+              response = await fetch(`/api/channel/${channel.id}/sync`, {
+                method: "POST",
+                headers,
+                signal: controller.signal,
+              });
+            } catch (error) {
+              if (error instanceof DOMException && error.name === "AbortError") {
+                throw new Error(`渠道 ${channel.name} 同步超时（>${Math.round(SYNC_REQUEST_TIMEOUT_MS / 1000)}秒）`);
+              }
+              throw error;
+            } finally {
+              clearTimeout(timeoutId);
+            }
             const data = await response.json();
             if (!response.ok) {
               throw new Error(data.error || "同步失败");
@@ -1914,4 +1940,3 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
     </div>
   );
 }
-
