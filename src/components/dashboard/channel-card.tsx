@@ -361,8 +361,13 @@ export function ChannelCard({
       }
 
       update(toastId, `已为 ${channel.name} 启动检测`, "success");
-    } catch {
-      update(toastId, `无法为 ${channel.name} 启动检测`, "error");
+    } catch (error) {
+      onStopModels?.(modelIds);
+      update(
+        toastId,
+        error instanceof Error ? error.message : `无法为 ${channel.name} 启动检测`,
+        "error"
+      );
     }
   };
 
@@ -412,8 +417,13 @@ export function ChannelCard({
       }
 
       update(toastId, `已为 ${modelName} 启动检测`, "success");
-    } catch {
-      update(toastId, `无法测试 ${modelName}`, "error");
+    } catch (error) {
+      onStopModels?.([modelId]);
+      update(
+        toastId,
+        error instanceof Error ? error.message : `无法测试 ${modelName}`,
+        "error"
+      );
     }
   };
 

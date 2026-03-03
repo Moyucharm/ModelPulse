@@ -11,7 +11,7 @@ type SelectedModelPair = {
 
 type SelectedModelCliConfig = Record<
   string,
-  { gemini: boolean; codex: boolean; claude: boolean }
+  { chat: boolean; gemini: boolean; codex: boolean; claude: boolean }
 >;
 
 const SYNC_TIMEOUT_MS = 120_000;
@@ -35,6 +35,7 @@ function normalizeSelectedModelCliConfig(input: unknown): SelectedModelCliConfig
       : {};
 
     normalized[modelName] = {
+      chat: normalizeCliFlag(config.chat),
       gemini: normalizeCliFlag(config.gemini),
       codex: normalizeCliFlag(config.codex),
       claude: normalizeCliFlag(config.claude),

@@ -6,6 +6,7 @@ import type { EndpointDetection } from "./types";
 import {
   getPreferredCliEndpoint,
   isCodexOnlyModel,
+  isImageModelName,
 } from "./cli-capability";
 
 // Default detection prompt
@@ -28,19 +29,7 @@ export function detectCliEndpointType(modelName: string): EndpointType | null {
  * Determine if model is an image generation model
  */
 export function isImageModel(modelName: string): boolean {
-  const name = modelName.toLowerCase();
-  return (
-    name.includes("dall-e") ||
-    name.includes("dalle") ||
-    name.includes("image") ||
-    name.includes("midjourney") ||
-    name.includes("stable-diffusion") ||
-    name.includes("sd-") ||
-    name.includes("sdxl") ||
-    name.includes("flux") ||
-    name.includes("ideogram") ||
-    name.includes("playground")
-  );
+  return isImageModelName(modelName);
 }
 
 /**
@@ -190,7 +179,8 @@ function buildCodexEndpoint(
     },
     requestBody: {
       model: modelName,
-      stream: true,
+      // Prefer non-streaming for health checks to avoid hanging SSE connections.
+      stream: false,
       // Responses API input format: array of message objects
       input: [
         {
@@ -225,7 +215,8 @@ function buildChatEndpoint(
     requestBody: {
       model: modelName,
       max_tokens: 50,
-      stream: true,
+      // Prefer non-streaming for health checks to avoid hanging SSE connections.
+      stream: false,
       messages: [
         {
           role: "user",

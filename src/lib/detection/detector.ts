@@ -2,8 +2,18 @@
 
 import { CheckStatus, EndpointType } from "@/generated/prisma";
 import { buildEndpointDetection } from "./strategies";
-import type { DetectionJobData, DetectionResult, FetchModelsResult } from "./types";
+import type { DetectionJobData, DetectionResult, EndpointDetection, FetchModelsResult } from "./types";
 import { proxyFetch } from "@/lib/utils/proxy-fetch";
+import { checkResponseBodyForError } from "./response-error";
+import {
+  clearCachedClaudeProfileId,
+  getCachedClaudeProfileId,
+  getClaudeProfileEndpointById,
+  getOrderedClaudeProfileEndpoints,
+  isClaudeProbeDebugEnabled,
+  setCachedClaudeProfileId,
+  type ClaudeProfileEndpoint,
+} from "./claude-profile";
 
 // Detection timeout in milliseconds
 const DETECTION_TIMEOUT = 30000;
@@ -23,52 +33,6 @@ export function sleep(ms: number): Promise<void> {
  */
 export function randomDelay(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min;
-}
-
-/**
- * Check if response body contains error indicators
- * Some API gateways/proxies return HTTP 200 but with error in body
- */
-function checkResponseBodyForError(body: unknown): string | null {
-  if (!body || typeof body !== "object") return null;
-
-  const obj = body as Record<string, unknown>;
-
-  // Check for common error field patterns
-  // Pattern 1: { error: "message" } or { error: { message: "..." } }
-  if (obj.error) {
-    if (typeof obj.error === "string") {
-      return obj.error;
-    }
-    if (typeof obj.error === "object" && obj.error !== null) {
-      const errObj = obj.error as Record<string, unknown>;
-      if (typeof errObj.message === "string") {
-        return errObj.message;
-      }
-      // Return stringified error object
-      return JSON.stringify(obj.error).slice(0, 500);
-    }
-  }
-
-  // Pattern 2: { success: false, message: "..." }
-  if (obj.success === false && typeof obj.message === "string") {
-    return obj.message;
-  }
-
-  // Pattern 3: { code: non-zero, message: "..." } (common in Chinese APIs)
-  if (typeof obj.code === "number" && obj.code !== 0 && typeof obj.message === "string") {
-    return `[${obj.code}] ${obj.message}`;
-  }
-
-  // Pattern 4: { status: "error", ... }
-  if (obj.status === "error" || obj.status === "fail" || obj.status === "failed") {
-    if (typeof obj.message === "string") {
-      return obj.message;
-    }
-    return `Status: ${obj.status}`;
-  }
-
-  return null;
 }
 
 /**
@@ -328,29 +292,24 @@ function extractResponseContent(
   return undefined;
 }
 
-/**
- * Execute detection for a single model
- */
-export async function executeDetection(job: DetectionJobData): Promise<DetectionResult> {
+function withTotalLatency(startTime: number, result: DetectionResult): DetectionResult {
+  return {
+    ...result,
+    latency: Date.now() - startTime,
+  };
+}
+
+async function executeEndpointRequest(
+  endpoint: EndpointDetection,
+  endpointType: EndpointType,
+  proxy?: string | null
+): Promise<DetectionResult> {
   const startTime = Date.now();
 
-  // Use channel proxy if specified, otherwise fall back to global proxy
-  const proxy = job.proxy || GLOBAL_PROXY;
-
-  // Build endpoint configuration
-  const endpoint = buildEndpointDetection(
-    job.baseUrl,
-    job.apiKey,
-    job.modelName,
-    job.endpointType
-  );
-
   try {
-    // Create abort controller for timeout
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), DETECTION_TIMEOUT);
 
-    // Build fetch options
     const fetchOptions = {
       method: "POST" as const,
       headers: endpoint.headers,
@@ -358,73 +317,65 @@ export async function executeDetection(job: DetectionJobData): Promise<Detection
       signal: controller.signal,
     };
 
-    if (proxy) {
-    }
+    try {
+      const response = await proxyFetch(endpoint.url, fetchOptions, proxy);
 
-    // Use proxyFetch for proxy support
-    const response = await proxyFetch(endpoint.url, fetchOptions, proxy);
-    clearTimeout(timeoutId);
-
-    const latency = Date.now() - startTime;
-
-    if (response.ok) {
-      // Parse response body to extract content
-      let responseContent: string | undefined;
-      let responseBody: unknown;
-      try {
-        const contentType = response.headers.get("content-type") || "";
-        if (contentType.includes("text/event-stream")) {
-          // SSE stream response (CHAT / CLAUDE / CODEX with stream: true)
-          const sseText = await response.text();
-          responseContent = extractStreamContent(sseText, job.endpointType);
-          responseBody = parseLastSSEEvent(sseText);
-        } else {
-          // JSON response (non-streaming fallback, Gemini, Image, etc.)
-          responseBody = await response.json();
-          responseContent = extractResponseContent(responseBody, job.endpointType);
+      const latency = Date.now() - startTime;
+      if (response.ok) {
+        let responseContent: string | undefined;
+        let responseBody: unknown;
+        try {
+          const contentType = response.headers.get("content-type") || "";
+          if (contentType.includes("text/event-stream")) {
+            const sseText = await response.text();
+            responseContent = extractStreamContent(sseText, endpointType);
+            responseBody = parseLastSSEEvent(sseText);
+          } else {
+            responseBody = await response.json();
+            responseContent = extractResponseContent(responseBody, endpointType);
+          }
+        } catch {
+          // Ignore parsing errors
         }
-      } catch {
-        // Ignore parsing errors
-      }
 
-      // Check if response body contains error indicators (some APIs return 200 with error in body)
-      const bodyError = checkResponseBodyForError(responseBody);
-      if (bodyError) {
+        const bodyError = checkResponseBodyForError(responseBody);
+        if (bodyError) {
+          return {
+            status: CheckStatus.FAIL,
+            latency,
+            statusCode: response.status,
+            errorMsg: bodyError,
+            endpointType,
+          };
+        }
+
         return {
-          status: CheckStatus.FAIL,
+          status: CheckStatus.SUCCESS,
           latency,
           statusCode: response.status,
-          errorMsg: bodyError,
-          endpointType: job.endpointType,
+          endpointType,
+          responseContent,
         };
       }
 
+      let errorMsg = `HTTP ${response.status}`;
+      try {
+        const errorBody = await response.text();
+        errorMsg = errorBody.length > 500 ? errorBody.slice(0, 500) + "..." : errorBody;
+      } catch {
+        // Ignore error body parsing failures
+      }
+
       return {
-        status: CheckStatus.SUCCESS,
+        status: CheckStatus.FAIL,
         latency,
         statusCode: response.status,
-        endpointType: job.endpointType,
-        responseContent,
+        errorMsg,
+        endpointType,
       };
+    } finally {
+      clearTimeout(timeoutId);
     }
-
-    // Non-OK response
-    let errorMsg = `HTTP ${response.status}`;
-    try {
-      const errorBody = await response.text();
-      // Truncate error message if too long
-      errorMsg = errorBody.length > 500 ? errorBody.slice(0, 500) + "..." : errorBody;
-    } catch {
-      // Ignore error body parsing failures
-    }
-
-    return {
-      status: CheckStatus.FAIL,
-      latency,
-      statusCode: response.status,
-      errorMsg,
-      endpointType: job.endpointType,
-    };
   } catch (error) {
     const latency = Date.now() - startTime;
     let errorMsg = "Unknown error";
@@ -441,9 +392,154 @@ export async function executeDetection(job: DetectionJobData): Promise<Detection
       status: CheckStatus.FAIL,
       latency,
       errorMsg,
-      endpointType: job.endpointType,
+      endpointType,
     };
   }
+}
+
+function shouldRetryClaudeProfile(errorMsg: string | undefined, statusCode?: number): boolean {
+  if (!errorMsg) {
+    return false;
+  }
+
+  const lower = errorMsg.toLowerCase();
+  const directPatterns = [
+    "invalid claude code request",
+    "invalid_request_error",
+    "invalid request",
+    "malformed",
+    "missing anthropic-version",
+    "missing x-api-key",
+    "unsupported request",
+  ];
+
+  if (directPatterns.some((pattern) => lower.includes(pattern))) {
+    return true;
+  }
+
+  if ((statusCode === 400 || statusCode === 422) && lower.includes("request")) {
+    return true;
+  }
+
+  return false;
+}
+
+function formatClaudeAttemptSummary(
+  profileId: string,
+  statusCode: number | undefined,
+  errorMsg: string | undefined
+): string {
+  const normalized = (errorMsg || "unknown error").replace(/\s+/g, " ").trim();
+  const detail = normalized.length > 120 ? `${normalized.slice(0, 120)}...` : normalized;
+  return `${profileId} [${statusCode ?? "n/a"}] ${detail}`;
+}
+
+async function executeClaudeDetection(job: DetectionJobData, proxy?: string | null): Promise<DetectionResult> {
+  const overallStartTime = Date.now();
+  const orderedProfiles = getOrderedClaudeProfileEndpoints(
+    job.baseUrl,
+    job.apiKey,
+    job.modelName
+  );
+
+  const attemptSummaries: string[] = [];
+  const triedProfileIds = new Set<string>();
+  let lastFailureStatusCode: number | undefined;
+
+  const tryProfile = async (profile: ClaudeProfileEndpoint): Promise<DetectionResult> => {
+    const result = await executeEndpointRequest(profile, job.endpointType, proxy);
+    attemptSummaries.push(
+      formatClaudeAttemptSummary(profile.profileId, result.statusCode, result.errorMsg)
+    );
+    if (result.status === CheckStatus.FAIL) {
+      lastFailureStatusCode = result.statusCode;
+    }
+
+    if (isClaudeProbeDebugEnabled()) {
+      const headers = profile.headers || {};
+      const ua = headers["User-Agent"] || headers["user-agent"] || "";
+      const beta = headers["anthropic-beta"] || "";
+      const req = profile.requestBody as Record<string, unknown> | undefined;
+      const stream = req?.stream === true ? "true" : "false";
+      const tools = Array.isArray(req?.tools) ? String(req.tools.length) : "n/a";
+      console.log(
+        `[claude-probe] channel=${job.channelId} model=${job.modelName} profile=${profile.profileId} status=${result.status} code=${result.statusCode ?? "n/a"} url=${profile.url} stream=${stream} tools=${tools} ua=${ua} beta=${beta}`
+      );
+    }
+
+    triedProfileIds.add(profile.profileId);
+    return result;
+  };
+
+  const cachedProfileId = getCachedClaudeProfileId(job);
+  if (cachedProfileId) {
+    const cachedProfile = getClaudeProfileEndpointById(
+      job.baseUrl,
+      job.apiKey,
+      job.modelName,
+      cachedProfileId
+    );
+    if (cachedProfile) {
+      const cachedResult = await tryProfile(cachedProfile);
+      if (cachedResult.status === CheckStatus.SUCCESS) {
+        setCachedClaudeProfileId(job, cachedProfileId);
+        return withTotalLatency(overallStartTime, cachedResult);
+      }
+
+      if (!shouldRetryClaudeProfile(cachedResult.errorMsg, cachedResult.statusCode)) {
+        return withTotalLatency(overallStartTime, cachedResult);
+      }
+    }
+
+    clearCachedClaudeProfileId(job);
+  }
+
+  for (const profile of orderedProfiles) {
+    if (triedProfileIds.has(profile.profileId)) {
+      continue;
+    }
+
+    const result = await tryProfile(profile);
+    if (result.status === CheckStatus.SUCCESS) {
+      setCachedClaudeProfileId(job, profile.profileId);
+      return withTotalLatency(overallStartTime, result);
+    }
+  }
+
+  const summary = attemptSummaries.length > 0
+    ? `Claude profiles failed: ${attemptSummaries.join("; ")}`
+    : "Claude profiles failed: no profile attempts";
+
+  return {
+    status: CheckStatus.FAIL,
+    latency: Date.now() - overallStartTime,
+    statusCode: lastFailureStatusCode,
+    errorMsg: summary.length > 1000 ? `${summary.slice(0, 1000)}...` : summary,
+    endpointType: job.endpointType,
+  };
+}
+
+/**
+ * Execute detection for a single model
+ */
+export async function executeDetection(job: DetectionJobData): Promise<DetectionResult> {
+  // Use channel proxy if specified, otherwise fall back to global proxy
+  const proxy = job.proxy || GLOBAL_PROXY;
+
+  if (job.endpointType === EndpointType.CLAUDE) {
+    return executeClaudeDetection(job, proxy);
+  }
+
+  const overallStartTime = Date.now();
+  const endpoint = buildEndpointDetection(
+    job.baseUrl,
+    job.apiKey,
+    job.modelName,
+    job.endpointType
+  );
+
+  const result = await executeEndpointRequest(endpoint, job.endpointType, proxy);
+  return withTotalLatency(overallStartTime, result);
 }
 
 /**
@@ -470,37 +566,39 @@ export async function fetchModels(
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), DETECTION_TIMEOUT);
 
-    const response = await proxyFetch(url, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      signal: controller.signal,
-    }, effectiveProxy);
+    try {
+      const response = await proxyFetch(url, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        signal: controller.signal,
+      }, effectiveProxy);
 
-    clearTimeout(timeoutId);
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => "");
+        const errorMsg = `HTTP ${response.status}: ${errorText.slice(0, 200)}`;
+        return { models: [], error: errorMsg };
+      }
 
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => "");
-      const errorMsg = `HTTP ${response.status}: ${errorText.slice(0, 200)}`;
-      return { models: [], error: errorMsg };
+      const data = await response.json();
+
+      // Parse OpenAI-style models response
+      if (data && Array.isArray(data.data)) {
+        const models = data.data
+          .filter((m: unknown): m is { id: string } =>
+            m !== null && typeof m === "object" && "id" in m && typeof m.id === "string"
+          )
+          .map((m: { id: string }) => m.id);
+
+        return { models };
+      }
+
+      return { models: [] };
+    } finally {
+      clearTimeout(timeoutId);
     }
-
-    const data = await response.json();
-
-    // Parse OpenAI-style models response
-    if (data && Array.isArray(data.data)) {
-      const models = data.data
-        .filter((m: unknown): m is { id: string } =>
-          m !== null && typeof m === "object" && "id" in m && typeof m.id === "string"
-        )
-        .map((m: { id: string }) => m.id);
-
-      return { models };
-    }
-
-    return { models: [] };
   } catch (error) {
     let errorMsg: string;
     if (error instanceof Error) {

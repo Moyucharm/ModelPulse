@@ -67,6 +67,7 @@ CREATE TABLE IF NOT EXISTS "models" (
   "last_status" BOOLEAN,
   "last_latency" INTEGER,
   "last_checked_at" TIMESTAMP(3),
+  "enable_chat_detection" BOOLEAN NOT NULL DEFAULT true,
   "enable_gemini_cli_detection" BOOLEAN NOT NULL DEFAULT true,
   "enable_codex_detection" BOOLEAN NOT NULL DEFAULT true,
   "enable_claude_detection" BOOLEAN NOT NULL DEFAULT true,
@@ -156,6 +157,7 @@ ALTER TABLE "models" ADD COLUMN IF NOT EXISTS "detected_endpoints" TEXT[] NOT NU
 ALTER TABLE "models" ADD COLUMN IF NOT EXISTS "last_status" BOOLEAN;
 ALTER TABLE "models" ADD COLUMN IF NOT EXISTS "last_latency" INTEGER;
 ALTER TABLE "models" ADD COLUMN IF NOT EXISTS "last_checked_at" TIMESTAMP(3);
+ALTER TABLE "models" ADD COLUMN IF NOT EXISTS "enable_chat_detection" BOOLEAN NOT NULL DEFAULT true;
 ALTER TABLE "models" ADD COLUMN IF NOT EXISTS "enable_gemini_cli_detection" BOOLEAN NOT NULL DEFAULT true;
 ALTER TABLE "models" ADD COLUMN IF NOT EXISTS "enable_codex_detection" BOOLEAN NOT NULL DEFAULT true;
 ALTER TABLE "models" ADD COLUMN IF NOT EXISTS "enable_claude_detection" BOOLEAN NOT NULL DEFAULT true;

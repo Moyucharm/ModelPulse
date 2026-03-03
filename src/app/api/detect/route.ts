@@ -2,6 +2,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/middleware/auth";
+import { startWorker, isWorkerRunning } from "@/lib/queue/worker";
 import {
   triggerFullDetection,
   triggerChannelDetection,
@@ -16,6 +17,12 @@ export async function POST(request: NextRequest) {
   if (authError) return authError;
 
   try {
+    // In development, background services might be disabled. Ensure a worker is running
+    // so detection jobs won't get stuck in "waiting" forever.
+    if (!isWorkerRunning()) {
+      startWorker();
+    }
+
     const body = await request.json().catch(() => ({}));
     const { channelId, modelId, modelIds } = body;
 

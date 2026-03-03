@@ -19,7 +19,7 @@ import {
 import { useAuth } from "@/components/providers/auth-provider";
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
-import { getCliCapabilities } from "@/lib/detection/cli-capability";
+import { getCliCapabilities, supportsChatEndpoint } from "@/lib/detection/cli-capability";
 
 interface Keyword {
   id: string;
@@ -27,15 +27,17 @@ interface Keyword {
   enabled: boolean;
 }
 
-type CliToggleKey = "gemini" | "codex" | "claude";
+type CliToggleKey = "chat" | "gemini" | "codex" | "claude";
 
 type ModelCliConfig = {
+  chat: boolean;
   gemini: boolean;
   codex: boolean;
   claude: boolean;
 };
 
 const DEFAULT_MODEL_CLI_CONFIG: ModelCliConfig = {
+  chat: true,
   gemini: true,
   codex: true,
   claude: true,
@@ -44,6 +46,7 @@ const DEFAULT_MODEL_CLI_CONFIG: ModelCliConfig = {
 const SYNC_REQUEST_TIMEOUT_MS = 120_000;
 
 const CLI_TOGGLE_META: Array<{ key: CliToggleKey; label: string }> = [
+  { key: "chat", label: "Chat" },
   { key: "gemini", label: "Gemini CLI" },
   { key: "codex", label: "Codex" },
   { key: "claude", label: "Claude Code" },
@@ -51,6 +54,7 @@ const CLI_TOGGLE_META: Array<{ key: CliToggleKey; label: string }> = [
 
 function normalizeModelCliConfig(input: Partial<ModelCliConfig> | undefined): ModelCliConfig {
   return {
+    chat: typeof input?.chat === "boolean" ? input.chat : true,
     gemini: typeof input?.gemini === "boolean" ? input.gemini : true,
     codex: typeof input?.codex === "boolean" ? input.codex : true,
     claude: typeof input?.claude === "boolean" ? input.claude : true,
@@ -59,7 +63,13 @@ function normalizeModelCliConfig(input: Partial<ModelCliConfig> | undefined): Mo
 
 function getSupportedCliToggleMeta(modelName: string): Array<{ key: CliToggleKey; label: string }> {
   const capabilities = getCliCapabilities(modelName);
-  return CLI_TOGGLE_META.filter(({ key }) => capabilities[key]);
+  const supportMap: Record<CliToggleKey, boolean> = {
+    chat: supportsChatEndpoint(modelName),
+    gemini: capabilities.gemini,
+    codex: capabilities.codex,
+    claude: capabilities.claude,
+  };
+  return CLI_TOGGLE_META.filter(({ key }) => supportMap[key]);
 }
 
 interface ChannelModelData {

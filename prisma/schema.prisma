@@ -32,6 +32,7 @@ model Model {
   lastStatus    Boolean?        @map("last_status")
   lastLatency   Int?            @map("last_latency")
   lastCheckedAt DateTime?       @map("last_checked_at")
+  enableChatDetection      Boolean @default(true) @map("enable_chat_detection")
   enableGeminiCliDetection Boolean @default(true) @map("enable_gemini_cli_detection")
   enableCodexDetection     Boolean @default(true) @map("enable_codex_detection")
   enableClaudeDetection    Boolean @default(true) @map("enable_claude_detection")

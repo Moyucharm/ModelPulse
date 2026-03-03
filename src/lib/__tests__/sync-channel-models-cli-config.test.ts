@@ -56,6 +56,7 @@ describe("syncChannelModels CLI config updates", () => {
       {
         id: "m1",
         modelName: "gpt-5.1",
+        enableChatDetection: true,
         enableGeminiCliDetection: true,
         enableCodexDetection: true,
         enableClaudeDetection: true,
@@ -63,6 +64,7 @@ describe("syncChannelModels CLI config updates", () => {
       {
         id: "m2",
         modelName: "gpt-4o",
+        enableChatDetection: true,
         enableGeminiCliDetection: true,
         enableCodexDetection: true,
         enableClaudeDetection: true,
@@ -83,8 +85,8 @@ describe("syncChannelModels CLI config updates", () => {
       ["gpt-5.1", "gpt-4o"],
       undefined,
       {
-        "gpt-5.1": { gemini: true, codex: false, claude: true },
-        "gpt-4o": { gemini: true, codex: true, claude: true },
+        "gpt-5.1": { chat: true, gemini: true, codex: false, claude: true },
+        "gpt-4o": { chat: true, gemini: true, codex: true, claude: true },
       }
     );
 
@@ -94,11 +96,44 @@ describe("syncChannelModels CLI config updates", () => {
     expect(mockedPrisma.model.update).toHaveBeenCalledWith({
       where: { id: "m1" },
       data: {
+        enableChatDetection: true,
         enableGeminiCliDetection: true,
         enableCodexDetection: false,
         enableClaudeDetection: true,
       },
     });
     expect(mockedPrisma.$transaction).toHaveBeenCalledTimes(1);
+  });
+
+  it("defaults missing chat switch to true", async () => {
+    mockedPrisma.model.findMany.mockResolvedValue([
+      {
+        id: "m1",
+        modelName: "gpt-4o",
+        enableChatDetection: false,
+        enableGeminiCliDetection: true,
+        enableCodexDetection: true,
+        enableClaudeDetection: true,
+      },
+    ]);
+
+    await syncChannelModels(
+      "channel-1",
+      ["gpt-4o"],
+      undefined,
+      {
+        "gpt-4o": { gemini: true, codex: true, claude: true },
+      }
+    );
+
+    expect(mockedPrisma.model.update).toHaveBeenCalledWith({
+      where: { id: "m1" },
+      data: {
+        enableChatDetection: true,
+        enableGeminiCliDetection: true,
+        enableCodexDetection: true,
+        enableClaudeDetection: true,
+      },
+    });
   });
 });

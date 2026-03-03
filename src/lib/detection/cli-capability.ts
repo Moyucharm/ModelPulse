@@ -36,6 +36,26 @@ export function isCodexOnlyModel(modelName: string): boolean {
   return name.includes("codex");
 }
 
+export function isImageModelName(modelName: string): boolean {
+  const name = normalizeModelName(modelName);
+  return (
+    name.includes("dall-e") ||
+    name.includes("dalle") ||
+    name.includes("image") ||
+    name.includes("midjourney") ||
+    name.includes("stable-diffusion") ||
+    name.includes("sd-") ||
+    name.includes("sdxl") ||
+    name.includes("flux") ||
+    name.includes("ideogram") ||
+    name.includes("playground")
+  );
+}
+
+export function supportsChatEndpoint(modelName: string): boolean {
+  return !isCodexOnlyModel(modelName) && !isImageModelName(modelName);
+}
+
 export function getPreferredCliEndpoint(
   modelName: string
 ): "CODEX" | "CLAUDE" | "GEMINI" | null {

@@ -97,6 +97,7 @@ export async function POST(
       where: { channelId: id },
       select: {
         modelName: true,
+        enableChatDetection: true,
         enableGeminiCliDetection: true,
         enableCodexDetection: true,
         enableClaudeDetection: true,
@@ -105,11 +106,12 @@ export async function POST(
 
     const existingModelCliConfig: Record<
       string,
-      { gemini: boolean; codex: boolean; claude: boolean }
+      { chat: boolean; gemini: boolean; codex: boolean; claude: boolean }
     > = {};
     for (const model of existingModels) {
       if (!existingModelCliConfig[model.modelName]) {
         existingModelCliConfig[model.modelName] = {
+          chat: model.enableChatDetection,
           gemini: model.enableGeminiCliDetection,
           codex: model.enableCodexDetection,
           claude: model.enableClaudeDetection,
@@ -119,6 +121,7 @@ export async function POST(
 
       // Multi-key same model name uses conservative merge: all true -> true, else false.
       existingModelCliConfig[model.modelName] = {
+        chat: existingModelCliConfig[model.modelName].chat && model.enableChatDetection,
         gemini: existingModelCliConfig[model.modelName].gemini && model.enableGeminiCliDetection,
         codex: existingModelCliConfig[model.modelName].codex && model.enableCodexDetection,
         claude: existingModelCliConfig[model.modelName].claude && model.enableClaudeDetection,

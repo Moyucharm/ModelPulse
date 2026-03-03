@@ -15,20 +15,24 @@ import type { DetectionJobData } from "@/lib/detection/types";
 import { getEndpointsToTestWithCliSwitches } from "./endpoint-filter";
 
 type ModelCliConfig = {
+  chat: boolean;
   gemini: boolean;
   codex: boolean;
   claude: boolean;
 };
 
-type SelectedModelCliConfig = Record<string, ModelCliConfig>;
+// Input from UI/API. Keep backward compatibility: older payloads may omit `chat`.
+type SelectedModelCliConfig = Record<string, Partial<ModelCliConfig>>;
 
 type PrismaModelCliSwitches = {
+  enableChatDetection: boolean;
   enableGeminiCliDetection: boolean;
   enableCodexDetection: boolean;
   enableClaudeDetection: boolean;
 };
 
 const DEFAULT_MODEL_CLI_CONFIG: ModelCliConfig = {
+  chat: true,
   gemini: true,
   codex: true,
   claude: true,
@@ -36,6 +40,7 @@ const DEFAULT_MODEL_CLI_CONFIG: ModelCliConfig = {
 
 function normalizeModelCliConfig(config: Partial<ModelCliConfig> | undefined): ModelCliConfig {
   return {
+    chat: typeof config?.chat === "boolean" ? config.chat : true,
     gemini: typeof config?.gemini === "boolean" ? config.gemini : true,
     codex: typeof config?.codex === "boolean" ? config.codex : true,
     claude: typeof config?.claude === "boolean" ? config.claude : true,
@@ -54,6 +59,7 @@ function resolveModelCliConfig(
 
 function toPrismaCliSwitches(config: ModelCliConfig): PrismaModelCliSwitches {
   return {
+    enableChatDetection: config.chat,
     enableGeminiCliDetection: config.gemini,
     enableCodexDetection: config.codex,
     enableClaudeDetection: config.claude,
@@ -65,6 +71,7 @@ function hasCliSwitchesChanged(
   next: PrismaModelCliSwitches
 ): boolean {
   return (
+    model.enableChatDetection !== next.enableChatDetection ||
     model.enableGeminiCliDetection !== next.enableGeminiCliDetection ||
     model.enableCodexDetection !== next.enableCodexDetection ||
     model.enableClaudeDetection !== next.enableClaudeDetection
@@ -99,6 +106,7 @@ async function buildJobsForModels(
     id: string;
     modelName: string;
     channelKeyId?: string | null;
+    enableChatDetection: boolean;
     enableGeminiCliDetection: boolean;
     enableCodexDetection: boolean;
     enableClaudeDetection: boolean;
@@ -132,6 +140,7 @@ async function buildJobsForModels(
     const checkRunId = randomUUID();
     const endpointsToTest = getEndpointsToTestWithCliSwitches({
       modelName: model.modelName,
+      enableChatDetection: model.enableChatDetection,
       enableGeminiCliDetection: model.enableGeminiCliDetection,
       enableCodexDetection: model.enableCodexDetection,
       enableClaudeDetection: model.enableClaudeDetection,
@@ -209,6 +218,7 @@ export async function triggerFullDetection(): Promise<{
           id: true,
           modelName: true,
           channelKeyId: true,
+          enableChatDetection: true,
           enableGeminiCliDetection: true,
           enableCodexDetection: true,
           enableClaudeDetection: true,
@@ -265,6 +275,7 @@ export async function triggerChannelDetection(
           id: true,
           modelName: true,
           channelKeyId: true,
+          enableChatDetection: true,
           enableGeminiCliDetection: true,
           enableCodexDetection: true,
           enableClaudeDetection: true,
@@ -337,6 +348,7 @@ export async function triggerModelDetection(modelId: string): Promise<{
   // Get all endpoints to test for this model
   const endpointsToTest = getEndpointsToTestWithCliSwitches({
     modelName: model.modelName,
+    enableChatDetection: model.enableChatDetection,
     enableGeminiCliDetection: model.enableGeminiCliDetection,
     enableCodexDetection: model.enableCodexDetection,
     enableClaudeDetection: model.enableClaudeDetection,
@@ -417,6 +429,7 @@ export async function syncChannelModels(
           id: true,
           modelName: true,
           channelKeyId: true,
+          enableChatDetection: true,
           enableGeminiCliDetection: true,
           enableCodexDetection: true,
           enableClaudeDetection: true,
@@ -496,6 +509,7 @@ export async function syncChannelModels(
       select: {
         id: true,
         modelName: true,
+        enableChatDetection: true,
         enableGeminiCliDetection: true,
         enableCodexDetection: true,
         enableClaudeDetection: true,
@@ -803,6 +817,7 @@ export async function triggerSelectiveDetection(
           id: true,
           modelName: true,
           channelKeyId: true,
+          enableChatDetection: true,
           enableGeminiCliDetection: true,
           enableCodexDetection: true,
           enableClaudeDetection: true,

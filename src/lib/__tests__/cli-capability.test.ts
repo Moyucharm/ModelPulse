@@ -3,6 +3,7 @@ import {
   getCliCapabilities,
   getPreferredCliEndpoint,
   isCodexOnlyModel,
+  supportsChatEndpoint,
 } from "@/lib/detection/cli-capability";
 
 describe("CLI capability detection", () => {
@@ -35,6 +36,7 @@ describe("CLI capability detection", () => {
     });
     expect(getPreferredCliEndpoint("codex-mini-latest")).toBe("CODEX");
     expect(isCodexOnlyModel("codex-mini-latest")).toBe(true);
+    expect(supportsChatEndpoint("codex-mini-latest")).toBe(false);
   });
 
   it("detects gpt-5.1 as codex-capable but not codex-only", () => {
@@ -55,6 +57,7 @@ describe("CLI capability detection", () => {
       claude: false,
     });
     expect(getPreferredCliEndpoint("gpt-4o")).toBeNull();
+    expect(supportsChatEndpoint("gpt-4o")).toBe(true);
 
     expect(getCliCapabilities("dall-e-3")).toEqual({
       gemini: false,
@@ -62,5 +65,6 @@ describe("CLI capability detection", () => {
       claude: false,
     });
     expect(getPreferredCliEndpoint("dall-e-3")).toBeNull();
+    expect(supportsChatEndpoint("dall-e-3")).toBe(false);
   });
 });

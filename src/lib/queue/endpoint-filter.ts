@@ -2,6 +2,7 @@ import { EndpointType } from "@/generated/prisma";
 import { getEndpointsToTest } from "@/lib/detection";
 
 export interface CliDetectionSwitches {
+  enableChatDetection?: boolean;
   enableGeminiCliDetection?: boolean;
   enableCodexDetection?: boolean;
   enableClaudeDetection?: boolean;
@@ -16,6 +17,9 @@ export function filterEndpointsByCliDetectionSwitches(
   switches: CliDetectionSwitches
 ): EndpointType[] {
   return endpoints.filter((endpointType) => {
+    if (endpointType === EndpointType.CHAT) {
+      return isEnabled(switches.enableChatDetection);
+    }
     if (endpointType === EndpointType.GEMINI) {
       return isEnabled(switches.enableGeminiCliDetection);
     }
