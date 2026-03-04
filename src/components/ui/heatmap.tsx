@@ -66,6 +66,8 @@ const TOOLTIP_HORIZONTAL_MARGIN = 8;
 const TOOLTIP_MAX_WIDTH = 360;
 const TOOLTIP_MIN_WIDTH = 220;
 const TOOLTIP_VERTICAL_OFFSET = 10;
+const TOOLTIP_CLOSE_DELAY_MS = 120;
+const TOOLTIP_MIN_TOP_SPACE = 220;
 
 function formatEndpointLabel(endpointType?: string): string {
   switch (endpointType) {
@@ -159,6 +161,8 @@ export function Heatmap({ data, className, points = 24 }: HeatmapProps) {
   const { toast } = useToast();
   const dotRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const closeTooltipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tooltipRef = useRef<HTMLDivElement | null>(null);
   const [activeTooltip, setActiveTooltip] = useState<ActiveTooltipState | null>(null);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
 
@@ -166,6 +170,9 @@ export function Heatmap({ data, className, points = 24 }: HeatmapProps) {
     return () => {
       if (copiedTimerRef.current) {
         clearTimeout(copiedTimerRef.current);
+      }
+      if (closeTooltipTimerRef.current) {
+        clearTimeout(closeTooltipTimerRef.current);
       }
     };
   }, []);
@@ -246,15 +253,61 @@ export function Heatmap({ data, className, points = 24 }: HeatmapProps) {
     };
   }, [activeTooltip, dotItems]);
 
+  const clearTooltipCloseTimer = () => {
+    if (closeTooltipTimerRef.current) {
+      clearTimeout(closeTooltipTimerRef.current);
+      closeTooltipTimerRef.current = null;
+    }
+  };
+
+  const isInTooltipInteractionArea = (index: number, target: EventTarget | null): boolean => {
+    if (!(target instanceof Node)) {
+      return false;
+    }
+
+    const dot = dotRefs.current[index];
+    if (dot?.contains(target)) {
+      return true;
+    }
+
+    return Boolean(tooltipRef.current?.contains(target));
+  };
+
+  const scheduleTooltipClose = (index: number) => {
+    clearTooltipCloseTimer();
+    closeTooltipTimerRef.current = setTimeout(() => {
+      setActiveTooltip((prev) => (prev && prev.index === index ? null : prev));
+      closeTooltipTimerRef.current = null;
+    }, TOOLTIP_CLOSE_DELAY_MS);
+  };
+
   const openTooltip = (index: number, element: HTMLButtonElement) => {
+    clearTooltipCloseTimer();
     setActiveTooltip({
       index,
       anchorRect: getAnchorRect(element),
     });
   };
 
-  const closeTooltip = (index: number) => {
-    setActiveTooltip((prev) => (prev && prev.index === index ? null : prev));
+  const handleDotMouseLeave = (index: number, event: React.MouseEvent<HTMLButtonElement>) => {
+    if (isInTooltipInteractionArea(index, event.relatedTarget)) {
+      return;
+    }
+    scheduleTooltipClose(index);
+  };
+
+  const handleDotBlur = (index: number, event: React.FocusEvent<HTMLButtonElement>) => {
+    if (isInTooltipInteractionArea(index, event.relatedTarget)) {
+      return;
+    }
+    scheduleTooltipClose(index);
+  };
+
+  const handleTooltipMouseLeave = (index: number, event: React.MouseEvent<HTMLDivElement>) => {
+    if (isInTooltipInteractionArea(index, event.relatedTarget)) {
+      return;
+    }
+    scheduleTooltipClose(index);
   };
 
   const handleDotClick = async (index: number, item: DotViewItem) => {
@@ -291,18 +344,24 @@ export function Heatmap({ data, className, points = 24 }: HeatmapProps) {
           viewportWidth - width - TOOLTIP_HORIZONTAL_MARGIN,
           Math.max(TOOLTIP_HORIZONTAL_MARGIN, anchorCenter - width / 2)
         );
-        const top = activeTooltip.anchorRect.top - TOOLTIP_VERTICAL_OFFSET;
+        const renderAbove = activeTooltip.anchorRect.top > TOOLTIP_MIN_TOP_SPACE;
+        const top = renderAbove
+          ? activeTooltip.anchorRect.top - TOOLTIP_VERTICAL_OFFSET
+          : activeTooltip.anchorRect.top + activeTooltip.anchorRect.height + TOOLTIP_VERTICAL_OFFSET;
 
         return createPortal(
           <div
             id={tooltipId}
             role="tooltip"
-            className="pointer-events-none fixed z-[60] rounded-lg border border-border bg-popover/95 px-3 py-2 text-xs text-popover-foreground shadow-lg backdrop-blur-sm"
+            ref={tooltipRef}
+            className="fixed z-[60] rounded-lg border border-border bg-popover/95 px-3 py-2 text-xs text-popover-foreground shadow-lg backdrop-blur-sm pointer-events-auto animate-tooltip-pop"
+            onMouseEnter={clearTooltipCloseTimer}
+            onMouseLeave={(event) => handleTooltipMouseLeave(activeTooltip.index, event)}
             style={{
               top,
               left,
               width,
-              transform: "translateY(-100%)",
+              transform: renderAbove ? "translateY(-100%)" : "translateY(0)",
             }}
           >
             <div className="max-h-48 overflow-y-auto space-y-1 whitespace-pre-wrap break-words">
@@ -345,9 +404,9 @@ export function Heatmap({ data, className, points = 24 }: HeatmapProps) {
               aria-label={item.ariaLabel}
               aria-describedby={isActive ? tooltipId : undefined}
               onMouseEnter={(event) => openTooltip(index, event.currentTarget)}
-              onMouseLeave={() => closeTooltip(index)}
+              onMouseLeave={(event) => handleDotMouseLeave(index, event)}
               onFocus={(event) => openTooltip(index, event.currentTarget)}
-              onBlur={() => closeTooltip(index)}
+              onBlur={(event) => handleDotBlur(index, event)}
               onClick={() => void handleDotClick(index, item)}
               className={cn(
                 "h-3 w-3 rounded-full transition-transform duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",

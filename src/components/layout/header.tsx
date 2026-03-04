@@ -30,6 +30,7 @@ import { useAuth } from "@/components/providers/auth-provider";
 import { useToast } from "@/components/ui/toast";
 import { SchedulerModal } from "@/components/dashboard/scheduler-modal";
 import { cn } from "@/lib/utils";
+import { APP_NAME, APP_REPO_URL } from "@/lib/brand";
 import type { ViewMode } from "@/components/dashboard/channel-card";
 
 export type EndpointFilter = "all" | "CHAT" | "CLAUDE" | "GEMINI" | "CODEX" | "IMAGE";
@@ -279,11 +280,11 @@ export function Header({
       <header className="sticky top-0 z-50 w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="container mx-auto flex h-14 items-center justify-between px-2 sm:px-4 gap-2">
           <div className="flex items-center gap-2 shrink-0">
-            <Activity className="h-5 w-5 text-primary" />
-            <span className="font-semibold hidden sm:inline">模型检测</span>
+            <Activity className="h-5 w-5 text-primary animate-gentle-float" />
+            <span className="font-semibold hidden sm:inline">{APP_NAME}</span>
             {isAuthenticated && hasUpdate && latestVersion ? (
               <a
-                href="https://github.com/Moyucharm/model-check"
+                href={APP_REPO_URL}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-blue-500/15 text-blue-600 dark:text-blue-400 border border-blue-500/25 hover:bg-blue-500/25 transition-colors hidden sm:flex"
@@ -294,7 +295,7 @@ export function Header({
               </a>
             ) : (
               <a
-                href="https://github.com/Moyucharm/model-check"
+                href={APP_REPO_URL}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors hidden sm:block"

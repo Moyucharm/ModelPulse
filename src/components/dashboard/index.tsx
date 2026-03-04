@@ -288,17 +288,22 @@ export function Dashboard({
         </div>
       ) : (
         <div className="grid gap-4">
-          {sortedChannels.map((channel) => (
-            <ChannelCard
+          {sortedChannels.map((channel, index) => (
+            <div
               key={channel.id}
-              channel={channel}
-              viewMode={viewMode}
-              onRefresh={() => fetchData(undefined, currentPage, search, endpointFilter, statusFilter)}
-              onDelete={handleDeleteChannel}
-              testingModelIds={testingModelIds}
-              onTestModels={onTestModels}
-              onStopModels={onStopModels}
-            />
+              className="animate-enter-up"
+              style={{ animationDelay: `${Math.min(index, 8) * 45}ms` }}
+            >
+              <ChannelCard
+                channel={channel}
+                viewMode={viewMode}
+                onRefresh={() => fetchData(undefined, currentPage, search, endpointFilter, statusFilter)}
+                onDelete={handleDeleteChannel}
+                testingModelIds={testingModelIds}
+                onTestModels={onTestModels}
+                onStopModels={onStopModels}
+              />
+            </div>
           ))}
         </div>
       )}

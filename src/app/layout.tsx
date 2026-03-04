@@ -4,6 +4,7 @@ import "./globals.css";
 import { ThemeProvider } from "@/components/providers/theme-provider";
 import { AuthProvider } from "@/components/providers/auth-provider";
 import { ToastProvider } from "@/components/ui/toast";
+import { APP_NAME, APP_TAGLINE } from "@/lib/brand";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -16,8 +17,13 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "模型检测",
-  description: "API 渠道可用性监控面板",
+  title: APP_NAME,
+  description: APP_TAGLINE,
+  icons: {
+    icon: [{ url: "/icon.svg?v=20260304", type: "image/svg+xml" }],
+    shortcut: ["/icon.svg?v=20260304"],
+    apple: ["/icon.svg?v=20260304"],
+  },
 };
 
 export default function RootLayout({

@@ -7,6 +7,7 @@ import { Header, EndpointFilter, StatusFilter } from "@/components/layout/header
 import { LoginModal } from "@/components/ui/login-modal";
 import { Dashboard } from "@/components/dashboard";
 import { useSSE } from "@/hooks/use-sse";
+import { APP_NAME, APP_REPO_URL, APP_TAGLINE } from "@/lib/brand";
 import type { ViewMode } from "@/components/dashboard/channel-card";
 
 const TESTING_STATUS_POLL_INTERVAL = 5000;
@@ -35,7 +36,10 @@ export default function Home() {
   useEffect(() => {
     const stored = localStorage.getItem(VIEW_MODE_STORAGE_KEY);
     if (stored === "list" || stored === "card") {
-      setViewMode(stored);
+      const timer = setTimeout(() => {
+        setViewMode(stored);
+      }, 0);
+      return () => clearTimeout(timer);
     }
   }, []);
 
@@ -220,7 +224,7 @@ export default function Home() {
         onDetectionStop={handleDetectionStop}
       />
 
-      <main className="flex-1 container mx-auto px-4 py-6">
+      <main className="flex-1 container mx-auto px-4 py-6 animate-enter-up">
         <Dashboard
           refreshKey={refreshKey}
           viewMode={viewMode}
@@ -236,14 +240,14 @@ export default function Home() {
       <footer className="border-t border-border py-4">
         <div className="container mx-auto px-4 text-center text-sm text-muted-foreground">
           <a
-            href="https://github.com/Moyucharm/model-check"
+            href={APP_REPO_URL}
             target="_blank"
             rel="noopener noreferrer"
             className="hover:text-foreground transition-colors"
           >
-            model-check
+            {APP_NAME}
           </a>
-          {" - API 渠道可用性监控"}
+          {` - ${APP_TAGLINE}`}
           <span className="ml-2 text-xs text-muted-foreground/60">v{process.env.APP_VERSION}</span>
         </div>
       </footer>

@@ -52,10 +52,11 @@ export function Summary({ data, className }: SummaryProps) {
 
   return (
     <div className={cn("grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-4", className)}>
-      {stats.map((stat) => (
+      {stats.map((stat, index) => (
         <div
           key={stat.label}
-          className="p-4 rounded-lg border border-border bg-card"
+          className="p-4 rounded-lg border border-border bg-card animate-enter-up"
+          style={{ animationDelay: `${index * 45}ms` }}
         >
           <div className="flex items-center gap-2 mb-2">
             <stat.icon className={cn("h-5 w-5", stat.color)} />
