@@ -19,6 +19,19 @@ RUN npm ci --legacy-peer-deps --ignore-scripts \
     && npm rebuild better-sqlite3
 
 # ========================================
+# Stage 1.5: Minimal Prisma CLI Runtime Deps
+# ========================================
+# Build a minimal dependency tree for runtime `prisma db push`.
+FROM docker.m.daocloud.io/library/node:22-alpine AS prisma-cli
+WORKDIR /prisma-cli
+
+# Resolve Prisma CLI version from lockfile to avoid drift.
+COPY package-lock.json ./
+RUN PRISMA_VERSION="$(node -e "const fs=require('fs'); const lock=JSON.parse(fs.readFileSync('package-lock.json','utf8')); const client=lock.packages&&lock.packages['node_modules/@prisma/client']&&lock.packages['node_modules/@prisma/client'].version; process.stdout.write(client||'7.3.0')")" \
+    && printf '{\n  "name": "model-check-prisma-cli-runtime",\n  "private": true\n}\n' > package.json \
+    && npm install --omit=dev --ignore-scripts --no-audit --no-fund "prisma@${PRISMA_VERSION}"
+
+# ========================================
 # Stage 2: Builder
 # ========================================
 FROM docker.m.daocloud.io/library/node:22-alpine AS builder
@@ -56,17 +69,14 @@ RUN addgroup --system --gid 1001 nodejs \
 
 # Copy necessary files from builder
 COPY --from=builder /app/public ./public
-COPY --from=builder /app/prisma ./prisma
-COPY --from=builder /app/prisma.config.ts ./
-COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/prisma/schema.prisma ./prisma/schema.prisma
 
 # Copy standalone build (includes bundled dependencies)
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
-# Copy full node_modules so Prisma CLI can run in entrypoint without
-# missing transitive dependencies (e.g. valibot).
-COPY --from=builder /app/node_modules ./node_modules
+# Copy minimal Prisma CLI runtime dependencies only.
+COPY --from=prisma-cli /prisma-cli/node_modules ./prisma-node_modules
 
 # Create data directory for SQLite with proper ownership
 RUN mkdir -p /app/data && chown nextjs:nodejs /app/data

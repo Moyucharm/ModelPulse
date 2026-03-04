@@ -8,7 +8,9 @@ set -e
 
 DATA_DIR="/app/data"
 DB_FILE="${DATA_DIR}/model-check.db"
-PRISMA_CLI_JS="/app/node_modules/prisma/build/index.js"
+PRISMA_CLI_JS="/app/prisma-node_modules/prisma/build/index.js"
+PRISMA_NODE_PATH="/app/prisma-node_modules"
+SCHEMA_FILE="/app/prisma/schema.prisma"
 APP_USER="nextjs"
 APP_GROUP="nodejs"
 RUN_AS="${APP_USER}"
@@ -26,8 +28,25 @@ run_as_app_user() {
 }
 
 run_prisma_db_push() {
+  if [ ! -f "${PRISMA_CLI_JS}" ] && [ -f "/app/node_modules/prisma/build/index.js" ]; then
+    # Backward-compatible fallback for older images.
+    PRISMA_CLI_JS="/app/node_modules/prisma/build/index.js"
+    PRISMA_NODE_PATH="/app/node_modules"
+  fi
+
+  if [ ! -f "${SCHEMA_FILE}" ]; then
+    log "Error: Prisma schema not found at ${SCHEMA_FILE}"
+    return 1
+  fi
+
   if [ -f "${PRISMA_CLI_JS}" ]; then
-    run_as_app_user node "${PRISMA_CLI_JS}" db push
+    if [ -n "${NODE_PATH:-}" ]; then
+      run_as_app_user env NODE_PATH="${PRISMA_NODE_PATH}:${NODE_PATH}" \
+        node "${PRISMA_CLI_JS}" db push --schema "${SCHEMA_FILE}" --skip-generate
+    else
+      run_as_app_user env NODE_PATH="${PRISMA_NODE_PATH}" \
+        node "${PRISMA_CLI_JS}" db push --schema "${SCHEMA_FILE}" --skip-generate
+    fi
     return $?
   fi
 
