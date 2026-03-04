@@ -119,6 +119,7 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
   // Sync state
   const [syncingId, setSyncingId] = useState<string | null>(null);
   const [syncingAll, setSyncingAll] = useState(false);
+  const [togglingChannelId, setTogglingChannelId] = useState<string | null>(null);
   // Per-channel sync status message (shown on the channel card)
   const [syncStatus, setSyncStatus] = useState<Record<string, { message: string; type: "success" | "error" }>>({});
   const [draggingChannelId, setDraggingChannelId] = useState<string | null>(null);
@@ -694,6 +695,58 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
     }
   };
 
+  const handleToggleChannelDetection = async (channel: Channel) => {
+    if (togglingChannelId === channel.id) return;
+
+    const nextEnabled = !channel.enabled;
+    setTogglingChannelId(channel.id);
+
+    // Optimistic update
+    setChannels((prev) =>
+      prev.map((item) =>
+        item.id === channel.id
+          ? { ...item, enabled: nextEnabled }
+          : item
+      )
+    );
+
+    try {
+      const response = await fetch("/api/channel", {
+        method: "PUT",
+        headers,
+        body: JSON.stringify({
+          id: channel.id,
+          enabled: nextEnabled,
+        }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || "切换检测状态失败");
+      }
+
+      onUpdate();
+      toast(
+        nextEnabled
+          ? `已开启 ${channel.name} 的检测`
+          : `已关闭 ${channel.name} 的检测`,
+        "success"
+      );
+    } catch (err) {
+      // Revert optimistic state on failure
+      setChannels((prev) =>
+        prev.map((item) =>
+          item.id === channel.id
+            ? { ...item, enabled: channel.enabled }
+            : item
+        )
+      );
+      toast(err instanceof Error ? err.message : "切换检测状态失败", "error");
+    } finally {
+      setTogglingChannelId(null);
+    }
+  };
+
   // Sync models
   const handleSync = async (id: string) => {
     setSyncingId(id);
@@ -1145,6 +1198,7 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
                   className={cn(
                     "flex flex-col p-3 rounded-md border bg-background",
                     getChannelBorderClass(channel),
+                    !channel.enabled && "opacity-70",
                     draggingChannelId === channel.id && "opacity-60"
                   )}
                 >
@@ -1153,7 +1207,42 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
                       <span className="font-medium truncate">
                         {channel.name}
                       </span>
+                      <span
+                        className={cn(
+                          "inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium border",
+                          channel.enabled
+                            ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/25"
+                            : "bg-muted text-muted-foreground border-border"
+                        )}
+                      >
+                        {channel.enabled ? "检测开启" : "检测关闭"}
+                      </span>
                     </div>
+                    <button
+                      type="button"
+                      draggable={false}
+                      onMouseDown={(event) => event.stopPropagation()}
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onDragStart={(event) => event.preventDefault()}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void handleToggleChannelDetection(channel);
+                      }}
+                      disabled={togglingChannelId === channel.id}
+                      className={cn(
+                        "relative inline-flex h-5 w-9 items-center rounded-full transition-colors duration-200 disabled:opacity-60",
+                        channel.enabled ? "bg-primary" : "bg-muted"
+                      )}
+                      title={channel.enabled ? "关闭该渠道检测" : "开启该渠道检测"}
+                      aria-label={channel.enabled ? "关闭该渠道检测" : "开启该渠道检测"}
+                    >
+                      <span
+                        className={cn(
+                          "inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform duration-200 ease-out",
+                          channel.enabled ? "translate-x-5" : "translate-x-0.5"
+                        )}
+                      />
+                    </button>
                   </div>
                   <div className="text-sm text-muted-foreground truncate">
                     {channel.baseUrl}
