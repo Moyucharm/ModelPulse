@@ -35,19 +35,48 @@ interface ParsedIntervalSchedule {
   intervalMs: number;
 }
 
-// Current active configuration (loaded from database or env)
-let currentConfig = {
-  enabled: ENV_AUTO_DETECT_ENABLED,
-  cronSchedule: ENV_DETECTION_SCHEDULE,
-  timezone: ENV_CRON_TIMEZONE,
-  detectAllChannels: ENV_AUTO_DETECT_ALL_CHANNELS,
-  selectedChannelIds: null as string[] | null,
-  selectedModelIds: null as Record<string, string[]> | null,
+type SchedulerConfigState = {
+  enabled: boolean;
+  cronSchedule: string;
+  timezone: string;
+  detectAllChannels: boolean;
+  selectedChannelIds: string[] | null;
+  selectedModelIds: Record<string, string[]> | null;
 };
 
-let detectionJobs: CronJob[] = [];
-let detectionTimer: NodeJS.Timeout | null = null;
-let cleanupJob: CronJob | null = null;
+interface SchedulerState {
+  currentConfig: SchedulerConfigState;
+  detectionJobs: CronJob[];
+  detectionTimer: NodeJS.Timeout | null;
+  cleanupJob: CronJob | null;
+  detectionRunning: boolean;
+  lastDetectionStartedAtMs: number;
+}
+
+// Persist scheduler state across Next.js route bundles (chunk isolation).
+const globalForScheduler = globalThis as unknown as {
+  __schedulerState?: SchedulerState;
+};
+
+if (!globalForScheduler.__schedulerState) {
+  globalForScheduler.__schedulerState = {
+    currentConfig: {
+      enabled: ENV_AUTO_DETECT_ENABLED,
+      cronSchedule: ENV_DETECTION_SCHEDULE,
+      timezone: ENV_CRON_TIMEZONE,
+      detectAllChannels: ENV_AUTO_DETECT_ALL_CHANNELS,
+      selectedChannelIds: null,
+      selectedModelIds: null,
+    },
+    detectionJobs: [],
+    detectionTimer: null,
+    cleanupJob: null,
+    detectionRunning: false,
+    lastDetectionStartedAtMs: 0,
+  };
+}
+
+const ss = globalForScheduler.__schedulerState;
 
 function splitCronSchedules(cronSchedule: string): string[] {
   return cronSchedule
@@ -57,9 +86,9 @@ function splitCronSchedules(cronSchedule: string): string[] {
 }
 
 function stopDetectionCrons(): void {
-  if (detectionJobs.length === 0) return;
-  detectionJobs.forEach((job) => job.stop());
-  detectionJobs = [];
+  if (ss.detectionJobs.length === 0) return;
+  ss.detectionJobs.forEach((job) => job.stop());
+  ss.detectionJobs = [];
 }
 
 function parseIntervalSchedule(schedule: string): ParsedIntervalSchedule | null {
@@ -185,33 +214,48 @@ function getNextDayMultiRunMs(
 
 function stopDetectionSchedulers(): void {
   stopDetectionCrons();
-  if (detectionTimer) {
-    clearTimeout(detectionTimer);
-    detectionTimer = null;
+  if (ss.detectionTimer) {
+    clearTimeout(ss.detectionTimer);
+    ss.detectionTimer = null;
   }
 }
 
 async function runDetectionOnce(): Promise<void> {
+  const nowMs = Date.now();
+
+  // Guard against duplicate triggers when the scheduler is started from multiple
+  // Next.js route bundles (chunk isolation) or when cron fires very close together.
+  if (ss.detectionRunning) {
+    return;
+  }
+  if (ss.lastDetectionStartedAtMs && nowMs - ss.lastDetectionStartedAtMs < 5000) {
+    return;
+  }
+
+  ss.detectionRunning = true;
+  ss.lastDetectionStartedAtMs = nowMs;
+
   try {
-    // Guard: re-check enabled from DB before every run
-    // (module-level state may be stale due to Next.js chunk isolation)
+    // Re-check enabled from DB before every run (config may change at runtime).
     const freshConfig = await loadSchedulerConfig();
     if (!freshConfig.enabled) {
       stopDetectionSchedulers();
       return;
     }
 
-    if (currentConfig.detectAllChannels) {
+    if (freshConfig.detectAllChannels) {
       // Full detection - all channels
       await triggerFullDetection();
     } else {
       // Selective detection - only specified channels/models
       await triggerSelectiveDetection(
-        currentConfig.selectedChannelIds,
-        currentConfig.selectedModelIds
+        freshConfig.selectedChannelIds,
+        freshConfig.selectedModelIds
       );
     }
   } catch {
+  } finally {
+    ss.detectionRunning = false;
   }
 }
 
@@ -221,9 +265,9 @@ function startIntervalDetection(intervalConfig: ParsedIntervalSchedule): void {
       ? getNextDayMultiRunMs(intervalConfig)
       : getNextIntervalRunMs(intervalConfig.anchorMs, intervalConfig.intervalMs);
     const delay = Math.max(0, nextRunMs - Date.now());
-    detectionTimer = setTimeout(async () => {
+    ss.detectionTimer = setTimeout(async () => {
       await runDetectionOnce();
-      if (detectionTimer) {
+      if (ss.detectionTimer) {
         scheduleNext();
       }
     }, delay);
@@ -236,14 +280,14 @@ function startIntervalDetection(intervalConfig: ParsedIntervalSchedule): void {
  * Load scheduler configuration from database
  * Falls back to environment variables if no database config exists
  */
-export async function loadSchedulerConfig(): Promise<typeof currentConfig> {
+export async function loadSchedulerConfig(): Promise<SchedulerConfigState> {
   try {
     const config = await prisma.schedulerConfig.findUnique({
       where: { id: "default" },
     });
 
     if (config) {
-      currentConfig = {
+      ss.currentConfig = {
         enabled: config.enabled,
         cronSchedule: config.cronSchedule,
         timezone: config.timezone,
@@ -266,17 +310,26 @@ export async function loadSchedulerConfig(): Promise<typeof currentConfig> {
           detectAllChannels: ENV_AUTO_DETECT_ALL_CHANNELS,
         },
       });
+
+      ss.currentConfig = {
+        enabled: ENV_AUTO_DETECT_ENABLED,
+        cronSchedule: ENV_DETECTION_SCHEDULE,
+        timezone: ENV_CRON_TIMEZONE,
+        detectAllChannels: ENV_AUTO_DETECT_ALL_CHANNELS,
+        selectedChannelIds: null,
+        selectedModelIds: null,
+      };
     }
   } catch (error) {
     console.error("[Scheduler] Failed to load config from database, using defaults:", error);
     // If database is unavailable, disable scheduler to avoid running with stale env defaults.
-    currentConfig = {
-      ...currentConfig,
+    ss.currentConfig = {
+      ...ss.currentConfig,
       enabled: false,
     };
   }
 
-  return currentConfig;
+  return ss.currentConfig;
 }
 
 /**
@@ -284,9 +337,9 @@ export async function loadSchedulerConfig(): Promise<typeof currentConfig> {
  */
 export async function startDetectionCronWithConfig(): Promise<CronJob[] | null> {
   // Load config from database first
-  await loadSchedulerConfig();
+  const config = await loadSchedulerConfig();
 
-  if (!currentConfig.enabled) {
+  if (!config.enabled) {
     stopDetectionSchedulers();
     return null;
   }
@@ -294,36 +347,36 @@ export async function startDetectionCronWithConfig(): Promise<CronJob[] | null> 
   // Stop existing job if running
   stopDetectionSchedulers();
 
-  const intervalConfig = parseIntervalSchedule(currentConfig.cronSchedule);
+  const intervalConfig = parseIntervalSchedule(config.cronSchedule);
   if (intervalConfig) {
     startIntervalDetection(intervalConfig);
     return null;
   }
 
-  const schedules = splitCronSchedules(currentConfig.cronSchedule);
+  const schedules = Array.from(new Set(splitCronSchedules(config.cronSchedule)));
   if (schedules.length === 0) {
     return null;
   }
 
   const validSchedules = schedules.filter(
-    (schedule) => getNextRunTime(schedule, currentConfig.timezone) !== null
+    (schedule) => getNextRunTime(schedule, config.timezone) !== null
   );
   if (validSchedules.length === 0) {
     return null;
   }
 
-  detectionJobs = validSchedules.map(
+  ss.detectionJobs = validSchedules.map(
     (schedule) =>
       new CronJob(
         schedule,
         runDetectionOnce,
         null, // onComplete
         true, // start immediately
-        currentConfig.timezone // timezone
+        config.timezone // timezone
       )
   );
 
-  return detectionJobs;
+  return ss.detectionJobs;
 }
 
 /**
@@ -334,7 +387,7 @@ export async function reloadSchedulerConfig(): Promise<void> {
   // Stop current detection job
   stopDetectionSchedulers();
 
-  // startDetectionCronWithConfig 内部会调用 loadSchedulerConfig，无需重复加载
+  // startDetectionCronWithConfig calls loadSchedulerConfig internally; no need to reload here.
   await startDetectionCronWithConfig();
 }
 
@@ -342,11 +395,11 @@ export async function reloadSchedulerConfig(): Promise<void> {
  * Start cleanup cron job
  */
 export function startCleanupCron(): CronJob {
-  if (cleanupJob) {
-    return cleanupJob;
+  if (ss.cleanupJob) {
+    return ss.cleanupJob;
   }
 
-  cleanupJob = new CronJob(
+  ss.cleanupJob = new CronJob(
     ENV_CLEANUP_SCHEDULE,
     async () => {
       try {
@@ -359,7 +412,7 @@ export function startCleanupCron(): CronJob {
     ENV_CRON_TIMEZONE // timezone
   );
 
-  return cleanupJob;
+  return ss.cleanupJob;
 }
 
 /**
@@ -386,9 +439,9 @@ export async function cleanupOldLogs(): Promise<{ deleted: number }> {
 export function stopAllCrons(): void {
   stopDetectionSchedulers();
 
-  if (cleanupJob) {
-    cleanupJob.stop();
-    cleanupJob = null;
+  if (ss.cleanupJob) {
+    ss.cleanupJob.stop();
+    ss.cleanupJob = null;
   }
 }
 
@@ -427,7 +480,7 @@ function getNextRunTimeFromSchedule(cronSchedule: string, timezone: string): str
 }
 
 function getNextDetectionRunTime(): string | null {
-  const intervalConfig = parseIntervalSchedule(currentConfig.cronSchedule);
+  const intervalConfig = parseIntervalSchedule(ss.currentConfig.cronSchedule);
   if (intervalConfig) {
     const nextRunMs = intervalConfig.unit === "day"
       ? getNextDayMultiRunMs(intervalConfig)
@@ -435,7 +488,7 @@ function getNextDetectionRunTime(): string | null {
     return new Date(nextRunMs).toISOString();
   }
 
-  return getNextRunTimeFromSchedule(currentConfig.cronSchedule, currentConfig.timezone);
+  return getNextRunTimeFromSchedule(ss.currentConfig.cronSchedule, ss.currentConfig.timezone);
 }
 
 /**
@@ -444,15 +497,15 @@ function getNextDetectionRunTime(): string | null {
 export function getCronStatus() {
   return {
     detection: {
-      enabled: currentConfig.enabled,
-      running: detectionJobs.length > 0 || detectionTimer !== null,
-      schedule: currentConfig.cronSchedule,
-      timezone: currentConfig.timezone,
-      nextRun: currentConfig.enabled ? getNextDetectionRunTime() : null,
-      detectAllChannels: currentConfig.detectAllChannels,
+      enabled: ss.currentConfig.enabled,
+      running: ss.detectionJobs.length > 0 || ss.detectionTimer !== null,
+      schedule: ss.currentConfig.cronSchedule,
+      timezone: ss.currentConfig.timezone,
+      nextRun: ss.currentConfig.enabled ? getNextDetectionRunTime() : null,
+      detectAllChannels: ss.currentConfig.detectAllChannels,
     },
     cleanup: {
-      running: cleanupJob !== null,
+      running: ss.cleanupJob !== null,
       schedule: ENV_CLEANUP_SCHEDULE,
       nextRun: getNextRunTime(ENV_CLEANUP_SCHEDULE),
       retentionDays: ENV_LOG_RETENTION_DAYS,
