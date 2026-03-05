@@ -1,4 +1,5 @@
 import { CheckStatus, EndpointType } from "@/generated/prisma";
+import { SLOW_RESPONSE_THRESHOLD_MS } from "./constants";
 
 export type AggregatedCheckStatus = CheckStatus | "PARTIAL";
 
@@ -40,11 +41,19 @@ interface CheckLogGroup {
   details: AggregatedCheckLogDetail[];
 }
 
-function deriveAggregatedStatus(statuses: CheckStatus[]): AggregatedCheckStatus {
-  const hasSuccess = statuses.some((status) => status === CheckStatus.SUCCESS);
-  const hasFail = statuses.some((status) => status === CheckStatus.FAIL);
+function deriveAggregatedStatus(
+  details: Array<Pick<AggregatedCheckLogDetail, "status" | "latency">>
+): AggregatedCheckStatus {
+  const hasSuccess = details.some((detail) => detail.status === CheckStatus.SUCCESS);
+  const hasFail = details.some((detail) => detail.status === CheckStatus.FAIL);
+  const hasSlowSuccess = details.some(
+    (detail) =>
+      detail.status === CheckStatus.SUCCESS
+      && detail.latency !== null
+      && detail.latency > SLOW_RESPONSE_THRESHOLD_MS
+  );
 
-  if (hasSuccess && hasFail) return "PARTIAL";
+  if (hasSuccess && (hasFail || hasSlowSuccess)) return "PARTIAL";
   if (hasSuccess) return CheckStatus.SUCCESS;
   return CheckStatus.FAIL;
 }
@@ -107,7 +116,7 @@ export function aggregateCheckLogsByRun(
 
       return {
         runId: group.runId,
-        status: deriveAggregatedStatus(group.details.map((detail) => detail.status)),
+        status: deriveAggregatedStatus(group.details),
         latency: group.latestLatency,
         createdAt: group.latestCreatedAt,
         details: group.details,

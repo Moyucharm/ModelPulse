@@ -4,9 +4,7 @@ import { CheckStatus, EndpointType } from "@/generated/prisma";
 import { buildEndpointDetection } from "./strategies";
 import type { DetectionJobData, DetectionResult, FetchModelsResult } from "./types";
 import { proxyFetch } from "@/lib/utils/proxy-fetch";
-
-// Detection timeout in milliseconds
-const DETECTION_TIMEOUT = 30000;
+import { DETECTION_TIMEOUT_MS } from "./constants";
 
 // Global proxy from environment
 const GLOBAL_PROXY = process.env.GLOBAL_PROXY;
@@ -348,7 +346,7 @@ export async function executeDetection(job: DetectionJobData): Promise<Detection
   try {
     // Create abort controller for timeout
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), DETECTION_TIMEOUT);
+    const timeoutId = setTimeout(() => controller.abort(), DETECTION_TIMEOUT_MS);
 
     // Build fetch options
     const fetchOptions = {
@@ -431,7 +429,7 @@ export async function executeDetection(job: DetectionJobData): Promise<Detection
 
     if (error instanceof Error) {
       if (error.name === "AbortError") {
-        errorMsg = `Timeout after ${DETECTION_TIMEOUT}ms`;
+        errorMsg = `Timeout after ${DETECTION_TIMEOUT_MS}ms`;
       } else {
         errorMsg = error.message;
       }
@@ -468,7 +466,7 @@ export async function fetchModels(
 
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), DETECTION_TIMEOUT);
+    const timeoutId = setTimeout(() => controller.abort(), DETECTION_TIMEOUT_MS);
 
     const response = await proxyFetch(url, {
       method: "GET",

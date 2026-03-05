@@ -1,0 +1,2 @@
+export const SLOW_RESPONSE_THRESHOLD_MS = 30_000;
+export const DETECTION_TIMEOUT_MS = 60_000;

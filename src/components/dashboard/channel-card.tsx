@@ -19,6 +19,7 @@ import { StatusIndicator } from "@/components/ui/status-indicator";
 import { Heatmap } from "@/components/ui/heatmap";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useToast } from "@/components/ui/toast";
+import { SLOW_RESPONSE_THRESHOLD_MS } from "@/lib/detection/constants";
 
 export type ViewMode = "list" | "card";
 
@@ -132,19 +133,25 @@ function channelStatus(models: Model[]): "healthy" | "partial" | "unhealthy" | "
 function EndpointStatusBadge({ endpoint }: { endpoint: EndpointStatus }) {
   const label = endpointLabel(endpoint.endpointType);
   const success = endpoint.status === "SUCCESS";
+  const slowSuccess = success
+    && endpoint.latency !== null
+    && endpoint.latency > SLOW_RESPONSE_THRESHOLD_MS;
+  const latencyLabel = endpoint.latency !== null ? ` | ${endpoint.latency}ms` : "";
 
   return (
     <span
       className={cn(
         "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium border",
-        success
+        slowSuccess
+          ? "bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-700"
+          : success
           ? "bg-emerald-100 text-emerald-700 border-emerald-300 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-700"
           : "bg-rose-100 text-rose-700 border-rose-300 dark:bg-rose-900/30 dark:text-rose-300 dark:border-rose-700"
       )}
-      title={`${label} | ${endpoint.status}${endpoint.statusCode ? ` | HTTP ${endpoint.statusCode}` : ""}${endpoint.errorMsg ? ` | ${endpoint.errorMsg}` : ""}`}
+      title={`${label} | ${endpoint.status}${latencyLabel}${endpoint.statusCode ? ` | HTTP ${endpoint.statusCode}` : ""}${endpoint.errorMsg ? ` | ${endpoint.errorMsg}` : ""}`}
     >
       {label}
-      <span>{success ? "正常" : endpoint.statusCode || "失败"}</span>
+      <span>{slowSuccess ? "慢" : success ? "正常" : endpoint.statusCode || "失败"}</span>
     </span>
   );
 }

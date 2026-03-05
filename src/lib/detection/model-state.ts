@@ -1,19 +1,31 @@
 import prisma from "@/lib/prisma";
 import { CheckStatus, HealthStatus } from "@/generated/prisma";
 import type { DetectionJobData, DetectionResult } from "./types";
+import { SLOW_RESPONSE_THRESHOLD_MS } from "./constants";
 
-function deriveModelState(statuses: CheckStatus[]): {
+interface EndpointStateSnapshot {
+  status: CheckStatus;
+  latency: number | null;
+}
+
+export function deriveModelState(endpointStates: EndpointStateSnapshot[]): {
   healthStatus: HealthStatus;
   lastStatus: boolean | null;
 } {
-  if (statuses.length === 0) {
+  if (endpointStates.length === 0) {
     return { healthStatus: HealthStatus.UNKNOWN, lastStatus: null };
   }
 
-  const hasSuccess = statuses.some((status) => status === CheckStatus.SUCCESS);
-  const hasFail = statuses.some((status) => status === CheckStatus.FAIL);
+  const hasSuccess = endpointStates.some((item) => item.status === CheckStatus.SUCCESS);
+  const hasFail = endpointStates.some((item) => item.status === CheckStatus.FAIL);
+  const hasSlowSuccess = endpointStates.some(
+    (item) =>
+      item.status === CheckStatus.SUCCESS
+      && item.latency !== null
+      && item.latency > SLOW_RESPONSE_THRESHOLD_MS
+  );
 
-  if (hasSuccess && hasFail) {
+  if (hasSuccess && (hasFail || hasSlowSuccess)) {
     return { healthStatus: HealthStatus.PARTIAL, lastStatus: true };
   }
 
@@ -93,12 +105,10 @@ export async function persistDetectionResult(
 
     const endpointStates = await tx.modelEndpoint.findMany({
       where: { modelId: data.modelId },
-      select: { status: true },
+      select: { status: true, latency: true },
     });
 
-    const { healthStatus, lastStatus } = deriveModelState(
-      endpointStates.map((item) => item.status)
-    );
+    const { healthStatus, lastStatus } = deriveModelState(endpointStates);
 
     await tx.model.update({
       where: { id: data.modelId },

@@ -64,6 +64,30 @@ describe("aggregateCheckLogsByRun", () => {
     expect(result[0].details).toHaveLength(2);
   });
 
+  it("aggregates same runId with slow success into one yellow point", () => {
+    const logs = [
+      makeLog({
+        id: "s1",
+        checkRunId: "run-slow",
+        status: "SUCCESS",
+        latency: 31001,
+        endpointType: "CHAT",
+      }),
+      makeLog({
+        id: "s2",
+        checkRunId: "run-slow",
+        status: "SUCCESS",
+        latency: 1500,
+        endpointType: "CODEX",
+      }),
+    ];
+
+    const result = aggregateCheckLogsByRun(logs);
+    expect(result).toHaveLength(1);
+    expect(result[0].status).toBe("PARTIAL");
+    expect(result[0].details).toHaveLength(2);
+  });
+
   it("aggregates same runId with all failures into one red point", () => {
     const logs = [
       makeLog({
