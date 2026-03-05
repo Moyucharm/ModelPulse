@@ -48,10 +48,10 @@ run_prisma_db_push() {
   if [ -f "${PRISMA_CLI_JS}" ]; then
     if [ -n "${NODE_PATH:-}" ]; then
       run_as_app_user env NODE_PATH="${PRISMA_NODE_PATH}:${NODE_PATH}" \
-        node "${PRISMA_CLI_JS}" db push --schema "${SCHEMA_FILE}" --skip-generate
+        node "${PRISMA_CLI_JS}" db push --schema "${SCHEMA_FILE}"
     else
       run_as_app_user env NODE_PATH="${PRISMA_NODE_PATH}" \
-        node "${PRISMA_CLI_JS}" db push --schema "${SCHEMA_FILE}" --skip-generate
+        node "${PRISMA_CLI_JS}" db push --schema "${SCHEMA_FILE}"
     fi
     return $?
   fi
