@@ -8,8 +8,8 @@ set -e
 
 DATA_DIR="/app/data"
 DB_FILE="${DATA_DIR}/model-check.db"
-PRISMA_CLI_JS="/app/prisma-node_modules/prisma/build/index.js"
-PRISMA_NODE_PATH="/app/prisma-node_modules"
+PRISMA_CLI_JS="/app/prisma-cli/node_modules/prisma/build/index.js"
+PRISMA_NODE_PATH="/app/prisma-cli/node_modules"
 SCHEMA_FILE="/app/prisma/schema.prisma"
 APP_USER="nextjs"
 APP_GROUP="nodejs"
@@ -28,6 +28,12 @@ run_as_app_user() {
 }
 
 run_prisma_db_push() {
+  if [ ! -f "${PRISMA_CLI_JS}" ] && [ -f "/app/prisma-node_modules/prisma/build/index.js" ]; then
+    # Backward-compatible fallback for previous slim images.
+    PRISMA_CLI_JS="/app/prisma-node_modules/prisma/build/index.js"
+    PRISMA_NODE_PATH="/app/prisma-node_modules"
+  fi
+
   if [ ! -f "${PRISMA_CLI_JS}" ] && [ -f "/app/node_modules/prisma/build/index.js" ]; then
     # Backward-compatible fallback for older images.
     PRISMA_CLI_JS="/app/node_modules/prisma/build/index.js"

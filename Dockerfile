@@ -79,8 +79,9 @@ COPY --from=builder /app/prisma/schema.prisma ./prisma/schema.prisma
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
-# Copy minimal Prisma CLI runtime dependencies only.
-COPY --from=prisma-cli /prisma-cli/node_modules ./prisma-node_modules
+# Copy minimal Prisma CLI runtime as a full project layout.
+# Keep `node_modules` as an actual path segment for ESM package resolution.
+COPY --from=prisma-cli /prisma-cli ./prisma-cli
 
 # Create data directory for SQLite with proper ownership
 RUN mkdir -p /app/data && chown nextjs:nodejs /app/data
