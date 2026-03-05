@@ -32,7 +32,7 @@ RUN PRISMA_VERSION="$(node -e "const fs=require('fs'); const lock=JSON.parse(fs.
     && GRAMMEX_VERSION="$(node -e "const fs=require('fs'); const lock=JSON.parse(fs.readFileSync('package-lock.json','utf8')); const grammex=lock.packages&&lock.packages['node_modules/grammex']&&lock.packages['node_modules/grammex'].version; process.stdout.write(grammex||'3.1.12')")" \
     && printf '{\n  "name": "model-check-prisma-cli-runtime",\n  "private": true\n}\n' > package.json \
     && rm -f package-lock.json \
-    && npm install --omit=dev --ignore-scripts --no-audit --no-fund "prisma@${PRISMA_VERSION}" "graphmatch@${GRAPHMATCH_VERSION}" "grammex@${GRAMMEX_VERSION}" \
+    && npm install --omit=dev --no-audit --no-fund "prisma@${PRISMA_VERSION}" "graphmatch@${GRAPHMATCH_VERSION}" "grammex@${GRAMMEX_VERSION}" \
     && node -e "require.resolve('prisma/build/index.js'); require.resolve('graphmatch'); require.resolve('grammex')"
 
 # ========================================
@@ -81,7 +81,7 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
 # Copy minimal Prisma CLI runtime as a full project layout.
 # Keep `node_modules` as an actual path segment for ESM package resolution.
-COPY --from=prisma-cli /prisma-cli ./prisma-cli
+COPY --from=prisma-cli --chown=nextjs:nodejs /prisma-cli ./prisma-cli
 
 # Create data directory for SQLite with proper ownership
 RUN mkdir -p /app/data && chown nextjs:nodejs /app/data
