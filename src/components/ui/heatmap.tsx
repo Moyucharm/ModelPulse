@@ -354,7 +354,7 @@ export function Heatmap({ data, className, points = 24 }: HeatmapProps) {
             id={tooltipId}
             role="tooltip"
             ref={tooltipRef}
-            className="fixed z-[60] rounded-lg border border-border bg-popover/95 px-3 py-2 text-xs text-popover-foreground shadow-lg backdrop-blur-sm pointer-events-auto animate-tooltip-pop"
+            className="fixed z-[60] pointer-events-auto"
             onMouseEnter={clearTooltipCloseTimer}
             onMouseLeave={(event) => handleTooltipMouseLeave(activeTooltip.index, event)}
             style={{
@@ -364,21 +364,23 @@ export function Heatmap({ data, className, points = 24 }: HeatmapProps) {
               transform: renderAbove ? "translateY(-100%)" : "translateY(0)",
             }}
           >
-            <div className="max-h-48 overflow-y-auto space-y-1 whitespace-pre-wrap break-words">
-              <p className="font-semibold text-[11px] leading-relaxed">
-                {activeItem.tooltipData.headerLine}
-              </p>
-              {activeItem.tooltipData.detailLines.map((line, lineIndex) => (
-                <p
-                  key={`${activeTooltip.index}-${lineIndex}`}
-                  className="font-mono text-[11px] leading-relaxed text-muted-foreground"
-                >
-                  {line}
+            <div className="rounded-lg border border-border bg-popover/95 px-3 py-2 text-xs text-popover-foreground shadow-lg backdrop-blur-sm animate-tooltip-pop">
+              <div className="max-h-48 overflow-y-auto space-y-1 whitespace-pre-wrap break-words">
+                <p className="font-semibold text-[11px] leading-relaxed">
+                  {activeItem.tooltipData.headerLine}
                 </p>
-              ))}
-              <p className="pt-1 text-[10px] text-muted-foreground/80">
-                单击圆点可复制完整详情
-              </p>
+                {activeItem.tooltipData.detailLines.map((line, lineIndex) => (
+                  <p
+                    key={`${activeTooltip.index}-${lineIndex}`}
+                    className="font-mono text-[11px] leading-relaxed text-muted-foreground"
+                  >
+                    {line}
+                  </p>
+                ))}
+                <p className="pt-1 text-[10px] text-muted-foreground/80">
+                  单击圆点可复制完整详情
+                </p>
+              </div>
             </div>
           </div>,
           document.body
