@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useToast } from "@/components/ui/toast";
+import { ModalPortal, useBodyScrollLock } from "@/components/ui/modal";
 import { cn } from "@/lib/utils";
 import { getCliCapabilities, supportsChatEndpoint } from "@/lib/detection/cli-capability";
 
@@ -94,6 +95,8 @@ export function ModelFilterModal({
 }: ModelFilterModalProps) {
   const { token } = useAuth();
   const { toast } = useToast();
+
+  useBodyScrollLock(true);
 
   const [fetching, setFetching] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -846,18 +849,19 @@ export function ModelFilterModal({
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="filter-modal-title"
-    >
+    <ModalPortal>
       <div
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-        onClick={onClose}
-        aria-hidden="true"
-      />
-      <div className="relative bg-card rounded-lg shadow-xl border border-border w-[900px] max-w-[95vw] m-4 max-h-[90vh] flex flex-col">
+        className="fixed inset-0 z-50 flex items-center justify-center"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="filter-modal-title"
+      >
+        <div
+          className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+          onClick={onClose}
+          aria-hidden="true"
+        />
+        <div className="relative bg-card rounded-lg shadow-xl border border-border w-[900px] max-w-[95vw] m-4 max-h-[90vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
           <div className="flex items-center gap-2">
@@ -1078,7 +1082,8 @@ export function ModelFilterModal({
             确认并同步 ({totalSelected})
           </button>
         </div>
+        </div>
       </div>
-    </div>
+    </ModalPortal>
   );
 }

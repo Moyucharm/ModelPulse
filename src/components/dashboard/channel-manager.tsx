@@ -23,6 +23,7 @@ import {
 import { useAuth } from "@/components/providers/auth-provider";
 import { useToast } from "@/components/ui/toast";
 import { ModelFilterModal } from "@/components/dashboard/model-filter-modal";
+import { ModalPortal, useBodyScrollLock } from "@/components/ui/modal";
 import { cn } from "@/lib/utils";
 
 interface Channel {
@@ -177,6 +178,8 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
   });
   const [webdavEnvConfigured, setWebdavEnvConfigured] = useState(false);
   const [webdavMode, setWebdavMode] = useState<"merge" | "replace">("merge");
+
+  useBodyScrollLock(showModal || showImportModal || showWebDAVModal || showFilterModal);
 
   // Handle ESC key to close modals
   useEffect(() => {
@@ -1373,18 +1376,19 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
 
       {/* Modal */}
       {showModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="channel-modal-title"
-        >
+        <ModalPortal>
           <div
-            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-            onClick={() => setShowModal(false)}
-            aria-hidden="true"
-          />
-          <div className="relative w-full max-w-lg mx-4 bg-card rounded-lg shadow-lg border border-border max-h-[90vh] overflow-y-auto">
+            className="fixed inset-0 z-50 flex items-center justify-center"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="channel-modal-title"
+          >
+            <div
+              className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+              onClick={() => setShowModal(false)}
+              aria-hidden="true"
+            />
+            <div className="relative w-full max-w-lg mx-4 bg-card rounded-lg shadow-lg border border-border max-h-[90vh] overflow-y-auto">
             {/* Modal header */}
             <div className="flex items-center justify-between p-4 border-b border-border">
               <h2 id="channel-modal-title" className="text-lg font-semibold">
@@ -1766,24 +1770,26 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
                 </button>
               </div>
             </form>
+            </div>
           </div>
-        </div>
+        </ModalPortal>
       )}
 
       {/* Import Modal */}
       {showImportModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="import-modal-title"
-        >
+        <ModalPortal>
           <div
-            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-            onClick={() => setShowImportModal(false)}
-            aria-hidden="true"
-          />
-          <div className="relative w-full max-w-lg mx-4 bg-card rounded-lg shadow-lg border border-border max-h-[90vh] overflow-y-auto">
+            className="fixed inset-0 z-50 flex items-center justify-center"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="import-modal-title"
+          >
+            <div
+              className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+              onClick={() => setShowImportModal(false)}
+              aria-hidden="true"
+            />
+            <div className="relative w-full max-w-lg mx-4 bg-card rounded-lg shadow-lg border border-border max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between p-4 border-b border-border">
               <h2 id="import-modal-title" className="text-lg font-semibold">导入渠道</h2>
               <button
@@ -1857,24 +1863,26 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
                 </button>
               </div>
             </div>
+            </div>
           </div>
-        </div>
+        </ModalPortal>
       )}
 
       {/* 云通知 Modal */}
       {showWebDAVModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="webdav-modal-title"
-        >
+        <ModalPortal>
           <div
-            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-            onClick={() => setShowWebDAVModal(false)}
-            aria-hidden="true"
-          />
-          <div className="relative w-full max-w-lg mx-4 bg-card rounded-lg shadow-lg border border-border max-h-[90vh] overflow-y-auto">
+            className="fixed inset-0 z-50 flex items-center justify-center"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="webdav-modal-title"
+          >
+            <div
+              className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+              onClick={() => setShowWebDAVModal(false)}
+              aria-hidden="true"
+            />
+            <div className="relative w-full max-w-lg mx-4 bg-card rounded-lg shadow-lg border border-border max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between p-4 border-b border-border">
               <h2 id="webdav-modal-title" className="text-lg font-semibold">云通知</h2>
               <button
@@ -2003,6 +2011,7 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
             </div>
           </div>
         </div>
+        </ModalPortal>
       )}
 
       {/* Model Filter Modal - shown after save or sync */}

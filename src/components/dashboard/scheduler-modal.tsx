@@ -7,6 +7,7 @@ import { useState, useEffect, FormEvent } from "react";
 import { X, Loader2, Clock } from "lucide-react";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useToast } from "@/components/ui/toast";
+import { ModalPortal, useBodyScrollLock } from "@/components/ui/modal";
 import { cn } from "@/lib/utils";
 
 interface SchedulerModalProps {
@@ -265,6 +266,8 @@ export function SchedulerModal({ isOpen, onClose, onSave }: SchedulerModalProps)
   const { token } = useAuth();
   const { toast } = useToast();
 
+  useBodyScrollLock(isOpen);
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [nextRun, setNextRun] = useState<string | null>(null);
@@ -433,18 +436,19 @@ export function SchedulerModal({ isOpen, onClose, onSave }: SchedulerModalProps)
   if (!isOpen) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="scheduler-modal-title"
-    >
+    <ModalPortal>
       <div
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-        onClick={onClose}
-        aria-hidden="true"
-      />
-      <div className="relative bg-card rounded-lg shadow-xl border border-border w-[680px] max-w-[95vw] m-4">
+        className="fixed inset-0 z-50 flex items-center justify-center"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="scheduler-modal-title"
+      >
+        <div
+          className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+          onClick={onClose}
+          aria-hidden="true"
+        />
+        <div className="relative bg-card rounded-lg shadow-xl border border-border w-[680px] max-w-[95vw] m-4">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-border">
           <h2 id="scheduler-modal-title" className="text-lg font-semibold flex items-center gap-2">
@@ -672,7 +676,8 @@ export function SchedulerModal({ isOpen, onClose, onSave }: SchedulerModalProps)
             </div>
           </form>
         )}
+        </div>
       </div>
-    </div>
+    </ModalPortal>
   );
 }

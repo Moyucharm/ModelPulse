@@ -20,6 +20,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const stored = localStorage.getItem("auth_token");
     if (stored) {
+      // Read after mount to avoid hydration mismatch in SSR.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setToken(stored);
     }
   }, []);

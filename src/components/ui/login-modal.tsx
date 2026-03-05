@@ -5,6 +5,7 @@
 import { useState, FormEvent } from "react";
 import { X, Loader2 } from "lucide-react";
 import { useAuth } from "@/components/providers/auth-provider";
+import { ModalPortal, useBodyScrollLock } from "@/components/ui/modal";
 
 interface LoginModalProps {
   isOpen: boolean;
@@ -16,6 +17,8 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useBodyScrollLock(isOpen);
 
   if (!isOpen) return null;
 
@@ -40,12 +43,13 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="login-modal-title"
-    >
+    <ModalPortal>
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="login-modal-title"
+      >
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/50 backdrop-blur-sm"
@@ -102,6 +106,7 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
           </button>
         </form>
       </div>
-    </div>
+      </div>
+    </ModalPortal>
   );
 }

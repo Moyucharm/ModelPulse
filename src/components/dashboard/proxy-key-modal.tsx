@@ -7,6 +7,7 @@ import { X, Loader2, Copy, RefreshCw, Check } from "lucide-react";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useToast } from "@/components/ui/toast";
 import { ChannelModelSelector, type ChannelWithModels } from "@/components/ui/channel-model-selector";
+import { ModalPortal, useBodyScrollLock } from "@/components/ui/modal";
 import { cn } from "@/lib/utils";
 
 interface ProxyKeyData {
@@ -29,6 +30,8 @@ interface ProxyKeyModalProps {
 export function ProxyKeyModal({ isOpen, onClose, editingKey, onSuccess }: ProxyKeyModalProps) {
   const { token } = useAuth();
   const { toast } = useToast();
+
+  useBodyScrollLock(isOpen);
 
   const [saving, setSaving] = useState(false);
   const [loadingChannels, setLoadingChannels] = useState(true);
@@ -233,18 +236,19 @@ export function ProxyKeyModal({ isOpen, onClose, editingKey, onSuccess }: ProxyK
   if (!isOpen) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="proxy-key-modal-title"
-    >
+    <ModalPortal>
       <div
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-        onClick={onClose}
-        aria-hidden="true"
-      />
-      <div className="relative w-full max-w-lg mx-4 bg-card rounded-lg shadow-lg border border-border max-h-[90vh] overflow-y-auto">
+        className="fixed inset-0 z-50 flex items-center justify-center"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="proxy-key-modal-title"
+      >
+        <div
+          className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+          onClick={onClose}
+          aria-hidden="true"
+        />
+        <div className="relative w-full max-w-lg mx-4 bg-card rounded-lg shadow-lg border border-border max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-border sticky top-0 bg-card z-10">
           <h2 id="proxy-key-modal-title" className="text-lg font-semibold">
@@ -401,7 +405,8 @@ export function ProxyKeyModal({ isOpen, onClose, editingKey, onSuccess }: ProxyK
             </button>
           </div>
         </form>
+        </div>
       </div>
-    </div>
+    </ModalPortal>
   );
 }
