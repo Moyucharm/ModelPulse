@@ -599,7 +599,7 @@ export function ChannelModelSelector({
                                 compact
                               />
                             ))}
-                            {/* CLI endpoints with separator */}
+                            {/* Additional protocol endpoints with separator */}
                             {endpoints.cli.length > 0 && endpoints.chat.length > 0 && (
                               <span className="w-px h-3 bg-border mx-0.5" />
                             )}

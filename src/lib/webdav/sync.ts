@@ -14,6 +14,7 @@ interface ChannelData {
   apiKey: string;
   proxy?: string | null;
   enabled?: boolean;
+  endpointTypes?: string[];
   keyMode?: string;
   channelKeys?: { apiKey: string; name: string | null }[];
 }
@@ -193,12 +194,13 @@ export async function appendChannelToWebDAV(channel: ChannelData): Promise<void>
     remoteData.channels[existingIndex] = {
       name: channel.name,
       baseUrl: channel.baseUrl.replace(/\/$/, ""),
-      apiKey: channel.apiKey,
-      proxy: channel.proxy || null,
-      enabled: channel.enabled ?? true,
-      ...(channel.keyMode && { keyMode: channel.keyMode }),
-      ...(channel.channelKeys?.length && { channelKeys: channel.channelKeys }),
-    };
+        apiKey: channel.apiKey,
+        proxy: channel.proxy || null,
+        enabled: channel.enabled ?? true,
+        ...(channel.endpointTypes?.length && { endpointTypes: channel.endpointTypes }),
+        ...(channel.keyMode && { keyMode: channel.keyMode }),
+        ...(channel.channelKeys?.length && { channelKeys: channel.channelKeys }),
+      };
   } else {
     // New channel - check for name conflict
     const existingNames = new Set(remoteData.channels.map((ch) => ch.name));
@@ -210,6 +212,7 @@ export async function appendChannelToWebDAV(channel: ChannelData): Promise<void>
       apiKey: channel.apiKey,
       proxy: channel.proxy || null,
       enabled: channel.enabled ?? true,
+      ...(channel.endpointTypes?.length && { endpointTypes: channel.endpointTypes }),
       ...(channel.keyMode && { keyMode: channel.keyMode }),
       ...(channel.channelKeys?.length && { channelKeys: channel.channelKeys }),
     });
@@ -299,6 +302,7 @@ export async function updateChannelInWebDAV(channel: ChannelData): Promise<void>
       apiKey: channel.apiKey,
       proxy: channel.proxy || null,
       enabled: channel.enabled ?? true,
+      ...(channel.endpointTypes?.length && { endpointTypes: channel.endpointTypes }),
       ...(channel.keyMode && { keyMode: channel.keyMode }),
       ...(channel.channelKeys?.length && { channelKeys: channel.channelKeys }),
     };
@@ -313,6 +317,7 @@ export async function updateChannelInWebDAV(channel: ChannelData): Promise<void>
       apiKey: channel.apiKey,
       proxy: channel.proxy || null,
       enabled: channel.enabled ?? true,
+      ...(channel.endpointTypes?.length && { endpointTypes: channel.endpointTypes }),
       ...(channel.keyMode && { keyMode: channel.keyMode }),
       ...(channel.channelKeys?.length && { channelKeys: channel.channelKeys }),
     });
@@ -351,6 +356,7 @@ export async function syncAllChannelsToWebDAV(channels: ChannelData[]): Promise<
     apiKey: ch.apiKey,
     proxy: ch.proxy || null,
     enabled: ch.enabled ?? true,
+    ...(ch.endpointTypes?.length && { endpointTypes: ch.endpointTypes }),
     ...(ch.keyMode && { keyMode: ch.keyMode }),
     ...(ch.channelKeys?.length && { channelKeys: ch.channelKeys }),
   }));

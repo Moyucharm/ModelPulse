@@ -95,43 +95,12 @@ export async function POST(
     // 返回该渠道已有的模型列表，用于同步时预选
     const existingModels = await prisma.model.findMany({
       where: { channelId: id },
-      select: {
-        modelName: true,
-        enableChatDetection: true,
-        enableGeminiCliDetection: true,
-        enableCodexDetection: true,
-        enableClaudeDetection: true,
-      },
+      select: { modelName: true },
     });
-
-    const existingModelCliConfig: Record<
-      string,
-      { chat: boolean; gemini: boolean; codex: boolean; claude: boolean }
-    > = {};
-    for (const model of existingModels) {
-      if (!existingModelCliConfig[model.modelName]) {
-        existingModelCliConfig[model.modelName] = {
-          chat: model.enableChatDetection,
-          gemini: model.enableGeminiCliDetection,
-          codex: model.enableCodexDetection,
-          claude: model.enableClaudeDetection,
-        };
-        continue;
-      }
-
-      // Multi-key same model name uses conservative merge: all true -> true, else false.
-      existingModelCliConfig[model.modelName] = {
-        chat: existingModelCliConfig[model.modelName].chat && model.enableChatDetection,
-        gemini: existingModelCliConfig[model.modelName].gemini && model.enableGeminiCliDetection,
-        codex: existingModelCliConfig[model.modelName].codex && model.enableCodexDetection,
-        claude: existingModelCliConfig[model.modelName].claude && model.enableClaudeDetection,
-      };
-    }
 
     return NextResponse.json({
       results,
       existingModels: Array.from(new Set(existingModels.map((m) => m.modelName))),
-      existingModelCliConfig,
     });
   } catch {
     return NextResponse.json(

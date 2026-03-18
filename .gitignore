@@ -63,6 +63,7 @@ next-env.d.ts
 # DevBooks
 .devbooks/
 /dev-playbooks/
+AGENTS.md
 evidence/
 *.tmp
 *.bak

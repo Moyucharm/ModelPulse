@@ -1,68 +1,11 @@
 // Detection Strategy Factory
-// Routes requests to correct endpoint based on model name
+// Builds request payloads for explicit endpoint types
 
 import { EndpointType } from "@/generated/prisma";
 import type { EndpointDetection } from "./types";
-import {
-  getPreferredCliEndpoint,
-  isCodexOnlyModel,
-  isImageModelName,
-} from "./cli-capability";
 
 // Default detection prompt
 const DETECT_PROMPT = process.env.DETECT_PROMPT || "1+1=2? yes or no";
-
-/**
- * Determine CLI endpoint type based on model name
- * Returns null if the model only supports CHAT
- */
-export function detectCliEndpointType(modelName: string): EndpointType | null {
-  const endpoint = getPreferredCliEndpoint(modelName);
-  if (!endpoint) {
-    return null;
-  }
-
-  return EndpointType[endpoint];
-}
-
-/**
- * Determine if model is an image generation model
- */
-export function isImageModel(modelName: string): boolean {
-  return isImageModelName(modelName);
-}
-
-/**
- * Get all endpoint types to test for a model
- * Image models only test IMAGE endpoint, others test CHAT plus CLI endpoint if applicable
- */
-export function getEndpointsToTest(modelName: string): EndpointType[] {
-  // Any model containing "codex" should only test Responses endpoint
-  if (isCodexOnlyModel(modelName)) {
-    return [EndpointType.CODEX];
-  }
-
-  // Image models only support IMAGE endpoint
-  if (isImageModel(modelName)) {
-    return [EndpointType.IMAGE];
-  }
-
-  const endpoints: EndpointType[] = [EndpointType.CHAT];
-  const cliEndpoint = detectCliEndpointType(modelName);
-
-  if (cliEndpoint) {
-    endpoints.push(cliEndpoint);
-  }
-
-  return endpoints;
-}
-
-/**
- * Legacy function for backward compatibility
- */
-export function detectEndpointType(modelName: string): EndpointType {
-  return detectCliEndpointType(modelName) || EndpointType.CHAT;
-}
 
 /**
  * Build endpoint detection configuration based on model and endpoint type

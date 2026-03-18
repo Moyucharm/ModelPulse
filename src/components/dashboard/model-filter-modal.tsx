@@ -20,7 +20,6 @@ import { useAuth } from "@/components/providers/auth-provider";
 import { useToast } from "@/components/ui/toast";
 import { ModalPortal, useBodyScrollLock } from "@/components/ui/modal";
 import { cn } from "@/lib/utils";
-import { getCliCapabilities, supportsChatEndpoint } from "@/lib/detection/cli-capability";
 
 interface Keyword {
   id: string;
@@ -28,56 +27,12 @@ interface Keyword {
   enabled: boolean;
 }
 
-type CliToggleKey = "chat" | "gemini" | "codex" | "claude";
-
-type ModelCliConfig = {
-  chat: boolean;
-  gemini: boolean;
-  codex: boolean;
-  claude: boolean;
-};
-
-const DEFAULT_MODEL_CLI_CONFIG: ModelCliConfig = {
-  chat: true,
-  gemini: true,
-  codex: true,
-  claude: true,
-};
-
 const SYNC_REQUEST_TIMEOUT_MS = 120_000;
-
-const CLI_TOGGLE_META: Array<{ key: CliToggleKey; label: string }> = [
-  { key: "chat", label: "Chat" },
-  { key: "gemini", label: "Gemini CLI" },
-  { key: "codex", label: "Codex" },
-  { key: "claude", label: "Claude Code" },
-];
-
-function normalizeModelCliConfig(input: Partial<ModelCliConfig> | undefined): ModelCliConfig {
-  return {
-    chat: typeof input?.chat === "boolean" ? input.chat : true,
-    gemini: typeof input?.gemini === "boolean" ? input.gemini : true,
-    codex: typeof input?.codex === "boolean" ? input.codex : true,
-    claude: typeof input?.claude === "boolean" ? input.claude : true,
-  };
-}
-
-function getSupportedCliToggleMeta(modelName: string): Array<{ key: CliToggleKey; label: string }> {
-  const capabilities = getCliCapabilities(modelName);
-  const supportMap: Record<CliToggleKey, boolean> = {
-    chat: supportsChatEndpoint(modelName),
-    gemini: capabilities.gemini,
-    codex: capabilities.codex,
-    claude: capabilities.claude,
-  };
-  return CLI_TOGGLE_META.filter(({ key }) => supportMap[key]);
-}
 
 interface ChannelModelData {
   allModels: string[];
   selectedModels: Set<string>;
   modelPairs: Array<{ modelName: string; keyId: string | null }>;
-  selectedModelCliConfig: Record<string, ModelCliConfig>;
 }
 
 interface ModelFilterModalProps {
@@ -101,6 +56,7 @@ export function ModelFilterModal({
   const [fetching, setFetching] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [fetchDone, setFetchDone] = useState(false);
+  const [channelFetchIssues, setChannelFetchIssues] = useState<Record<string, string>>({});
 
   const [channelData, setChannelData] = useState<Map<string, ChannelModelData>>(new Map());
   // Keep a ref in sync so async callbacks always read the latest data
@@ -144,6 +100,7 @@ export function ModelFilterModal({
     setFetching(true);
     setFetchDone(false);
     const newData = new Map<string, ChannelModelData>();
+    const nextIssues: Record<string, string> = {};
 
     try {
       const batchSize = 3;
@@ -155,14 +112,22 @@ export function ModelFilterModal({
               method: "POST",
               headers,
             });
-            if (!res.ok) throw new Error("获取失败");
-            const data = await res.json();
+            const data = await res.json().catch(() => null);
+            if (!res.ok) {
+              throw new Error(
+                typeof data?.error === "string" ? data.error : "获取失败"
+              );
+            }
             const models = new Set<string>();
             const modelPairMap = new Map<string, { modelName: string; keyId: string | null }>();
-            const existingModelCliConfigRaw = data.existingModelCliConfig as
-              | Record<string, Partial<ModelCliConfig>>
-              | undefined;
-            for (const kr of (data.results || []) as { valid: boolean; keyId: string | null; models: string[] }[]) {
+            const results = (data?.results || []) as {
+              valid: boolean;
+              keyId: string | null;
+              models: string[];
+              error?: string;
+            }[];
+
+            for (const kr of results) {
               if (kr.valid) {
                 const keyId = typeof kr.keyId === "string" ? kr.keyId : null;
                 for (const m of kr.models) {
@@ -176,23 +141,23 @@ export function ModelFilterModal({
             }
             const allModels = Array.from(models).sort();
             // 将已有模型（且在获取列表中存在的）作为默认已选
-            const existingModels: string[] = data.existingModels || [];
+            const existingModels: string[] = data?.existingModels || [];
             const preSelected = new Set<string>(
               existingModels.filter((m: string) => models.has(m))
             );
-            const selectedModelCliConfig: Record<string, ModelCliConfig> = {};
-            for (const modelName of preSelected) {
-              selectedModelCliConfig[modelName] = normalizeModelCliConfig(
-                existingModelCliConfigRaw?.[modelName]
-              );
-            }
+            const failedMessages = results
+              .filter((item) => !item.valid && typeof item.error === "string" && item.error.trim())
+              .map((item) => item.error!.trim());
+            const issue = allModels.length === 0
+              ? failedMessages[0] ?? "没有从该渠道返回任何模型"
+              : undefined;
 
             return {
               channelId: ch.id,
               models: allModels,
               preSelected,
               modelPairs: Array.from(modelPairMap.values()),
-              selectedModelCliConfig,
+              issue,
             };
           })
         );
@@ -200,24 +165,27 @@ export function ModelFilterModal({
         results.forEach((result, idx) => {
           const ch = batch[idx];
           if (result.status === "fulfilled") {
+            if (result.value.issue) {
+              nextIssues[ch.id] = result.value.issue;
+            }
             newData.set(result.value.channelId, {
               allModels: result.value.models,
               selectedModels: result.value.preSelected,
               modelPairs: result.value.modelPairs,
-              selectedModelCliConfig: result.value.selectedModelCliConfig,
             });
           } else {
+            nextIssues[ch.id] = result.reason instanceof Error ? result.reason.message : "获取失败";
             newData.set(ch.id, {
               allModels: [],
               selectedModels: new Set(),
               modelPairs: [],
-              selectedModelCliConfig: {},
             });
           }
         });
       }
 
       setChannelData(newData);
+      setChannelFetchIssues(nextIssues);
       setFetchDone(true);
       const totalModels = Array.from(newData.values()).reduce((sum, d) => sum + d.allModels.length, 0);
       if (totalModels > 0) {
@@ -226,6 +194,7 @@ export function ModelFilterModal({
         toast("未获取到任何模型", "error");
       }
     } catch (err) {
+      setChannelFetchIssues({});
       toast(err instanceof Error ? err.message : "获取失败", "error");
     } finally {
       setFetching(false);
@@ -237,8 +206,7 @@ export function ModelFilterModal({
       fetchInitiatedRef.current = true;
       fetchModels();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
+  }, [fetchModels, targetChannels.length, token]);
 
   // Filter logic
   const enabledKeywords = useMemo(
@@ -282,58 +250,6 @@ export function ModelFilterModal({
     [channelData, selectedSearchText]
   );
 
-  // Model actions
-  const ensureCliConfigForModels = useCallback(
-    (
-      selectedModelCliConfig: Record<string, ModelCliConfig>,
-      modelNames: Iterable<string>
-    ) => {
-      let nextConfig = selectedModelCliConfig;
-      for (const modelName of modelNames) {
-        if (nextConfig[modelName]) {
-          continue;
-        }
-        if (nextConfig === selectedModelCliConfig) {
-          nextConfig = { ...selectedModelCliConfig };
-        }
-        nextConfig[modelName] = { ...DEFAULT_MODEL_CLI_CONFIG };
-      }
-      return nextConfig;
-    },
-    []
-  );
-
-  const getModelCliConfig = useCallback(
-    (chId: string, modelName: string): ModelCliConfig => {
-      const d = channelData.get(chId);
-      return normalizeModelCliConfig(d?.selectedModelCliConfig[modelName]);
-    },
-    [channelData]
-  );
-
-  const toggleModelCliConfig = (chId: string, modelName: string, key: CliToggleKey) => {
-    setChannelData((prev) => {
-      const next = new Map(prev);
-      const d = next.get(chId);
-      if (!d) return next;
-
-      const current = normalizeModelCliConfig(d.selectedModelCliConfig[modelName]);
-      const updated: ModelCliConfig = {
-        ...current,
-        [key]: !current[key],
-      };
-
-      next.set(chId, {
-        ...d,
-        selectedModelCliConfig: {
-          ...d.selectedModelCliConfig,
-          [modelName]: updated,
-        },
-      });
-      return next;
-    });
-  };
-
   const selectModel = (chId: string, name: string) => {
     setChannelData((prev) => {
       const next = new Map(prev);
@@ -344,7 +260,6 @@ export function ModelFilterModal({
         next.set(chId, {
           ...d,
           selectedModels: s,
-          selectedModelCliConfig: ensureCliConfigForModels(d.selectedModelCliConfig, [name]),
         });
       }
       return next;
@@ -370,17 +285,14 @@ export function ModelFilterModal({
       const d = next.get(chId);
       if (d) {
         const s = new Set(d.selectedModels);
-        const newlySelected: string[] = [];
         for (const n of d.allModels) {
           if (!s.has(n) && matchesFilter(n)) {
             s.add(n);
-            newlySelected.push(n);
           }
         }
         next.set(chId, {
           ...d,
           selectedModels: s,
-          selectedModelCliConfig: ensureCliConfigForModels(d.selectedModelCliConfig, newlySelected),
         });
       }
       return next;
@@ -401,17 +313,14 @@ export function ModelFilterModal({
       const next = new Map(prev);
       for (const [chId, d] of next) {
         const s = new Set(d.selectedModels);
-        const newlySelected: string[] = [];
         for (const n of d.allModels) {
           if (!s.has(n) && matchesFilter(n)) {
             s.add(n);
-            newlySelected.push(n);
           }
         }
         next.set(chId, {
           ...d,
           selectedModels: s,
-          selectedModelCliConfig: ensureCliConfigForModels(d.selectedModelCliConfig, newlySelected),
         });
       }
       return next;
@@ -444,7 +353,6 @@ export function ModelFilterModal({
         allModels: [],
         selectedModels: new Set<string>(),
         modelPairs: [] as Array<{ modelName: string; keyId: string | null }>,
-        selectedModelCliConfig: {} as Record<string, ModelCliConfig>,
       };
 
       const allModels = Array.from(new Set([...current.allModels, modelName])).sort();
@@ -459,7 +367,6 @@ export function ModelFilterModal({
         allModels,
         selectedModels,
         modelPairs,
-        selectedModelCliConfig: ensureCliConfigForModels(current.selectedModelCliConfig, [modelName]),
       });
       return next;
     });
@@ -599,12 +506,6 @@ export function ModelFilterModal({
             const selectedModelPairs = d
               ? d.modelPairs.filter((pair) => d.selectedModels.has(pair.modelName))
               : [];
-            const selectedModelCliConfig = d
-              ? selected.reduce<Record<string, ModelCliConfig>>((acc, modelName) => {
-                acc[modelName] = normalizeModelCliConfig(d.selectedModelCliConfig[modelName]);
-                return acc;
-              }, {})
-              : {};
 
             if (selected.length === 0) {
               console.warn("[sync] No models selected for channel", ch.id, "channelData keys:", Array.from(channelDataRef.current.keys()));
@@ -621,7 +522,6 @@ export function ModelFilterModal({
                 body: JSON.stringify({
                   selectedModels: selected,
                   selectedModelPairs,
-                  selectedModelCliConfig,
                 }),
               });
             } catch (error) {
@@ -753,40 +653,6 @@ export function ModelFilterModal({
     ));
   };
 
-  const renderCliToggleControls = (chId: string, modelName: string) => {
-    const supportedToggles = getSupportedCliToggleMeta(modelName);
-    if (supportedToggles.length === 0) {
-      return null;
-    }
-
-    const cliConfig = getModelCliConfig(chId, modelName);
-    return (
-      <div className="mt-1 flex flex-wrap items-center gap-1">
-        {supportedToggles.map(({ key, label }) => {
-          const enabled = cliConfig[key];
-          return (
-            <button
-              key={`${modelName}-${key}`}
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                toggleModelCliConfig(chId, modelName, key);
-              }}
-              className={cn(
-                "rounded border px-1.5 py-0.5 text-[11px] transition-colors",
-                enabled
-                  ? "border-emerald-300 bg-emerald-500/10 text-emerald-700 dark:border-emerald-700 dark:text-emerald-300"
-                  : "border-rose-300 bg-rose-500/10 text-rose-700 dark:border-rose-700 dark:text-rose-300"
-              )}
-            >
-              {label}: {enabled ? "开" : "关"}
-            </button>
-          );
-        })}
-      </div>
-    );
-  };
-
   // Render channel model list for right column (selected)
   const renderSelectedList = () => {
     if (isMultiChannel) {
@@ -816,10 +682,7 @@ export function ModelFilterModal({
                 onClick={() => deselectModel(ch.id, name)}
                 className="flex items-center gap-2 px-3 py-1 hover:bg-red-500/5 cursor-pointer transition-colors border-b border-border last:border-b-0"
               >
-                <div className="min-w-0 flex-1">
-                  <span className="text-sm font-mono truncate block">{name}</span>
-                  {renderCliToggleControls(ch.id, name)}
-                </div>
+                <span className="text-sm font-mono flex-1 truncate">{name}</span>
                 <Minus className="h-3.5 w-3.5 text-red-500 shrink-0" />
               </div>
             ))}
@@ -839,10 +702,7 @@ export function ModelFilterModal({
         onClick={() => deselectModel(chId, name)}
         className="flex items-center gap-2 px-3 py-1.5 hover:bg-red-500/5 cursor-pointer transition-colors border-b border-border last:border-b-0"
       >
-        <div className="min-w-0 flex-1">
-          <span className="text-sm font-mono truncate block">{name}</span>
-          {renderCliToggleControls(chId, name)}
-        </div>
+        <span className="text-sm font-mono flex-1 truncate">{name}</span>
         <Minus className="h-3.5 w-3.5 text-red-500 shrink-0" />
       </div>
     ));
@@ -969,6 +829,18 @@ export function ModelFilterModal({
                 ))}
               </div>
             )}
+            {!fetching && fetchDone && (
+              <div className="flex items-center justify-end">
+                <button
+                  type="button"
+                  onClick={fetchModels}
+                  className="inline-flex items-center gap-1 rounded-md border border-input bg-background px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  重新获取模型
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Model lists */}
@@ -1058,9 +930,60 @@ export function ModelFilterModal({
               </div>
             </div>
           ) : fetchDone ? (
-            <p className="text-sm text-muted-foreground text-center py-8 flex-1">
-              未获取到任何模型
-            </p>
+            <div className="flex flex-1 flex-col items-center justify-center gap-4 rounded-xl border border-dashed border-border px-6 py-8 text-center">
+              <div className="space-y-1">
+                <p className="text-sm font-medium">暂时没有拿到模型列表</p>
+                <p className="text-sm text-muted-foreground">
+                  你可以重试获取，或者直接手动录入模型名继续同步。
+                </p>
+              </div>
+              {!isMultiChannel && (
+                <div className="flex w-full max-w-xl items-center gap-2">
+                  <input
+                    type="text"
+                    value={manualModelName}
+                    onChange={(e) => setManualModelName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        handleAddManualModel();
+                      }
+                    }}
+                    className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm font-mono"
+                    placeholder="例如：gpt-4o-mini / claude-sonnet-4-5 / gemini-2.5-pro"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddManualModel}
+                    disabled={!manualModelName.trim()}
+                    className="inline-flex items-center gap-1 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+                  >
+                    <Plus className="h-4 w-4" />
+                    添加模型
+                  </button>
+                </div>
+              )}
+              {Object.keys(channelFetchIssues).length > 0 && (
+                <div className="w-full max-w-2xl rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-left">
+                  <p className="mb-2 text-xs font-medium uppercase tracking-wide text-amber-700 dark:text-amber-300">
+                    获取详情
+                  </p>
+                  <div className="space-y-2 text-sm text-muted-foreground">
+                    {targetChannels.map((channel) => {
+                      const issue = channelFetchIssues[channel.id];
+                      if (!issue) return null;
+                      return (
+                        <div key={channel.id} className="rounded-md bg-background/70 px-3 py-2">
+                          <span className="font-medium text-foreground">{channel.name}</span>
+                          <span className="mx-2 text-muted-foreground/60">-</span>
+                          <span>{issue}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
           ) : null}
         </div>
 

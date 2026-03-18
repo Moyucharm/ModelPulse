@@ -32,6 +32,7 @@ import { SchedulerModal } from "@/components/dashboard/scheduler-modal";
 import { cn } from "@/lib/utils";
 import { APP_NAME, APP_REPO_URL } from "@/lib/brand";
 import type { ViewMode } from "@/components/dashboard/channel-card";
+import { endpointTypeLabel, type ChannelEndpointType } from "@/lib/endpoint-types";
 
 export type EndpointFilter = "all" | "CHAT" | "CLAUDE" | "GEMINI" | "CODEX" | "IMAGE";
 export type StatusFilter = "all" | "healthy" | "partial" | "unhealthy" | "unknown";
@@ -387,11 +388,11 @@ export function Header({
                           className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm"
                         >
                           <option value="all">全部</option>
-                          <option value="CHAT">Chat</option>
-                          <option value="CLAUDE">Claude CLI</option>
-                          <option value="GEMINI">Gemini CLI</option>
-                          <option value="CODEX">Codex CLI</option>
-                          <option value="IMAGE">Image</option>
+                          <option value="CHAT">{endpointTypeLabel("CHAT" as ChannelEndpointType)}</option>
+                          <option value="CLAUDE">{endpointTypeLabel("CLAUDE" as ChannelEndpointType)}</option>
+                          <option value="GEMINI">{endpointTypeLabel("GEMINI" as ChannelEndpointType)}</option>
+                          <option value="CODEX">{endpointTypeLabel("CODEX" as ChannelEndpointType)}</option>
+                          <option value="IMAGE">{endpointTypeLabel("IMAGE" as ChannelEndpointType)}</option>
                         </select>
                       </div>
 

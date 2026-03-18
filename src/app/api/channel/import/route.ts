@@ -2,6 +2,10 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
+import {
+  normalizeChannelEndpointTypes,
+  type ChannelEndpointType,
+} from "@/lib/endpoint-types";
 import { requireAuth } from "@/lib/middleware/auth";
 import { syncChannelModels } from "@/lib/queue/service";
 import { appendChannelToWebDAV, updateChannelInWebDAV, syncAllChannelsToWebDAV, isWebDAVConfigured } from "@/lib/webdav/sync";
@@ -19,6 +23,7 @@ type NormalizedChannel = {
   apiKey: string;
   proxy: string | null;
   enabled: boolean;
+  endpointTypes: ChannelEndpointType[];
   keyMode: "single" | "multi";
   channelKeys: { apiKey: string; name: string | null }[];
 };
@@ -89,6 +94,9 @@ function normalizeChannel(raw: ImportChannelInput): NormalizedChannel | { error:
 
   const keyModeRaw = readTrimmedString(raw, ["keyMode", "key_mode"]);
   const keyMode: "single" | "multi" = keyModeRaw === "multi" ? "multi" : "single";
+  const endpointTypes = normalizeChannelEndpointTypes(
+    raw.endpointTypes ?? raw.endpoint_types ?? raw.endpoints
+  );
 
   const directApiKey = readTrimmedString(raw, ["apiKey", "api_key", "key", "token"]);
   const channelKeysFromArray =
@@ -137,6 +145,7 @@ function normalizeChannel(raw: ImportChannelInput): NormalizedChannel | { error:
     apiKey: normalizedApiKey,
     proxy: proxy ?? null,
     enabled,
+    endpointTypes,
     keyMode,
     channelKeys: filteredChannelKeys,
   };
@@ -227,6 +236,7 @@ export async function POST(request: NextRequest) {
       apiKey: string;
       proxy: string | null;
       enabled: boolean;
+      endpointTypes: ChannelEndpointType[];
       keyMode?: string;
       channelKeys?: { apiKey: string; name: string | null }[];
       action: "create" | "update";
@@ -265,6 +275,7 @@ export async function POST(request: NextRequest) {
               apiKey: ch.apiKey,
               proxy: ch.proxy,
               enabled: ch.enabled ?? true,
+              endpointTypes: ch.endpointTypes,
               keyMode: ch.keyMode,
             },
           });
@@ -288,6 +299,7 @@ export async function POST(request: NextRequest) {
             apiKey: ch.apiKey,
             proxy: ch.proxy,
             enabled: ch.enabled ?? true,
+            endpointTypes: ch.endpointTypes,
             keyMode: ch.keyMode,
             channelKeys: ch.channelKeys,
             action: "update",
@@ -303,9 +315,10 @@ export async function POST(request: NextRequest) {
             apiKey: ch.apiKey,
             proxy: ch.proxy,
             enabled: ch.enabled ?? true,
+            endpointTypes: ch.endpointTypes,
             keyMode: ch.keyMode,
           },
-        });
+          });
 
         if (ch.channelKeys.length > 0) {
           await prisma.channelKey.createMany({
@@ -325,6 +338,7 @@ export async function POST(request: NextRequest) {
           apiKey: ch.apiKey,
           proxy: ch.proxy,
           enabled: ch.enabled ?? true,
+          endpointTypes: ch.endpointTypes,
           keyMode: ch.keyMode,
           channelKeys: ch.channelKeys,
           action: "create",
@@ -369,13 +383,19 @@ export async function POST(request: NextRequest) {
               name: true,
               baseUrl: true,
               apiKey: true,
-              proxy: true,
-              enabled: true,
-              keyMode: true,
-              channelKeys: { select: { apiKey: true, name: true } },
-            },
-          });
-          await syncAllChannelsToWebDAV(allChannels);
+                proxy: true,
+                enabled: true,
+                endpointTypes: true,
+                keyMode: true,
+                channelKeys: { select: { apiKey: true, name: true } },
+              },
+            });
+          await syncAllChannelsToWebDAV(
+            allChannels.map((channel) => ({
+              ...channel,
+              endpointTypes: normalizeChannelEndpointTypes(channel.endpointTypes),
+            }))
+          );
         } else {
           for (const ch of channelsToSync) {
             if (ch.action === "create") {

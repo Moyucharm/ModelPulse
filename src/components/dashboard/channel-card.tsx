@@ -20,6 +20,7 @@ import { Heatmap } from "@/components/ui/heatmap";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useToast } from "@/components/ui/toast";
 import { SLOW_RESPONSE_THRESHOLD_MS } from "@/lib/detection/constants";
+import { endpointTypeLabel, type ChannelEndpointType } from "@/lib/endpoint-types";
 
 export type ViewMode = "list" | "card";
 
@@ -78,22 +79,8 @@ interface ChannelCardProps {
   onStopModels?: (modelIds: string[]) => void;
 }
 
-const ENDPOINT_META: Record<
-  string,
-  {
-    label: string;
-    base: string;
-  }
-> = {
-  CHAT: { label: "Chat", base: "blue" },
-  CLAUDE: { label: "Claude CLI", base: "orange" },
-  GEMINI: { label: "Gemini CLI", base: "cyan" },
-  CODEX: { label: "Codex CLI", base: "violet" },
-  IMAGE: { label: "Image", base: "pink" },
-};
-
 function endpointLabel(type: string): string {
-  return ENDPOINT_META[type]?.label || type;
+  return endpointTypeLabel(type as ChannelEndpointType, "compact");
 }
 
 function formatRelativeTime(dateStr: string | null): string {

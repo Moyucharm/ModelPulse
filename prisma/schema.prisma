@@ -8,17 +8,18 @@ datasource db {
 }
 
 model Channel {
-  id        String      @id @default(cuid())
-  name      String
-  baseUrl   String      @map("base_url")
-  apiKey    String      @map("api_key")
-  proxy     String?
-  enabled   Boolean     @default(true)
-  sortOrder Int         @default(0) @map("sort_order")
-  keyMode   String      @default("single") @map("key_mode")
-  createdAt DateTime    @default(now()) @map("created_at")
-  updatedAt DateTime    @default(now()) @updatedAt @map("updated_at")
-  models    Model[]
+  id            String       @id @default(cuid())
+  name          String
+  baseUrl       String       @map("base_url")
+  apiKey        String       @map("api_key")
+  proxy         String?
+  enabled       Boolean      @default(true)
+  sortOrder     Int          @default(0) @map("sort_order")
+  keyMode       String       @default("single") @map("key_mode")
+  endpointTypes Json?        @map("endpoint_types")
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @default(now()) @updatedAt @map("updated_at")
+  models        Model[]
   channelKeys ChannelKey[]
 
   @@map("channels")

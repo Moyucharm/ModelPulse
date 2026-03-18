@@ -1,7 +1,11 @@
-import prisma from "@/lib/prisma";
 import { CheckStatus, HealthStatus } from "@/generated/prisma";
 import type { DetectionJobData, DetectionResult } from "./types";
 import { SLOW_RESPONSE_THRESHOLD_MS } from "./constants";
+
+async function getPrismaClient() {
+  const prismaModule = await import("@/lib/prisma");
+  return prismaModule.default;
+}
 
 interface EndpointStateSnapshot {
   status: CheckStatus;
@@ -39,6 +43,8 @@ export function deriveModelState(endpointStates: EndpointStateSnapshot[]): {
 export async function resetModelsDetectionState(modelIds: string[]): Promise<void> {
   if (modelIds.length === 0) return;
 
+  const prisma = await getPrismaClient();
+
   await prisma.$transaction(async (tx) => {
     await tx.modelEndpoint.deleteMany({
       where: { modelId: { in: modelIds } },
@@ -61,6 +67,7 @@ export async function persistDetectionResult(
   result: DetectionResult
 ): Promise<void> {
   const now = new Date();
+  const prisma = await getPrismaClient();
 
   await prisma.$transaction(async (tx) => {
     await tx.modelEndpoint.upsert({

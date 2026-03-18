@@ -9,41 +9,7 @@ type SelectedModelPair = {
   keyId: string | null;
 };
 
-type SelectedModelCliConfig = Record<
-  string,
-  { chat: boolean; gemini: boolean; codex: boolean; claude: boolean }
->;
-
 const SYNC_TIMEOUT_MS = 120_000;
-
-function normalizeCliFlag(value: unknown): boolean {
-  return typeof value === "boolean" ? value : true;
-}
-
-function normalizeSelectedModelCliConfig(input: unknown): SelectedModelCliConfig | undefined {
-  if (!input || typeof input !== "object" || Array.isArray(input)) {
-    return undefined;
-  }
-
-  const normalized: SelectedModelCliConfig = {};
-  for (const [rawModelName, rawConfig] of Object.entries(input as Record<string, unknown>)) {
-    const modelName = rawModelName.trim();
-    if (!modelName) continue;
-
-    const config = rawConfig && typeof rawConfig === "object" && !Array.isArray(rawConfig)
-      ? (rawConfig as Record<string, unknown>)
-      : {};
-
-    normalized[modelName] = {
-      chat: normalizeCliFlag(config.chat),
-      gemini: normalizeCliFlag(config.gemini),
-      codex: normalizeCliFlag(config.codex),
-      claude: normalizeCliFlag(config.claude),
-    };
-  }
-
-  return normalized;
-}
 
 // POST /api/channel/[id]/sync - Sync models from channel
 export async function POST(
@@ -59,7 +25,6 @@ export async function POST(
     // Parse optional selectedModels from body
     let selectedModels: string[] | undefined;
     let selectedModelPairs: SelectedModelPair[] | undefined;
-    let selectedModelCliConfig: SelectedModelCliConfig | undefined;
     try {
       const body = await request.json();
       if (Array.isArray(body.selectedModels)) {
@@ -77,9 +42,8 @@ export async function POST(
           }))
           .filter((item: { modelName: string; keyId: string | null }) => item.modelName.trim().length > 0);
       }
-      selectedModelCliConfig = normalizeSelectedModelCliConfig(body.selectedModelCliConfig);
       console.log(
-        `[sync] channel=${id} selectedModels=${selectedModels?.length ?? "undefined"} selectedModelPairs=${selectedModelPairs?.length ?? "undefined"} selectedModelCliConfig=${selectedModelCliConfig ? Object.keys(selectedModelCliConfig).length : "undefined"}`
+        `[sync] channel=${id} selectedModels=${selectedModels?.length ?? "undefined"} selectedModelPairs=${selectedModelPairs?.length ?? "undefined"}`
       );
     } catch {
       // No body or invalid JSON, use default behavior (fetch from API)
@@ -90,8 +54,7 @@ export async function POST(
       syncChannelModels(
         id,
         selectedModels,
-        selectedModelPairs,
-        selectedModelCliConfig
+        selectedModelPairs
       ),
       new Promise<never>((_, reject) => {
         const timeoutId = setTimeout(() => {

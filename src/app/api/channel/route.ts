@@ -2,6 +2,11 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
+import { resetModelsDetectionState } from "@/lib/detection/model-state";
+import {
+  hasSameChannelEndpointTypes,
+  normalizeChannelEndpointTypes,
+} from "@/lib/endpoint-types";
 import { requireAuth } from "@/lib/middleware/auth";
 
 function readTrimmedString(value: unknown): string | undefined {
@@ -58,6 +63,7 @@ export async function GET(request: NextRequest) {
 
     const maskedChannels = channels.map((channel) => ({
       ...channel,
+      endpointTypes: normalizeChannelEndpointTypes(channel.endpointTypes),
       apiKey: channel.apiKey.slice(0, 8) + "..." + channel.apiKey.slice(-4),
     }));
 
@@ -84,10 +90,20 @@ export async function POST(request: NextRequest) {
     const keysFromText = parseKeysText(body.keys);
     const apiKey = apiKeyRaw ?? keysFromText[0];
     const keyMode = normalizeKeyMode(body.keyMode);
+    const endpointTypes = body.endpointTypes === undefined
+      ? normalizeChannelEndpointTypes(undefined)
+      : normalizeChannelEndpointTypes(body.endpointTypes, []);
 
     if (!name || !baseUrlRaw || !apiKey) {
       return NextResponse.json(
         { error: "Name, baseUrl, and apiKey are required", code: "MISSING_FIELDS" },
+        { status: 400 }
+      );
+    }
+
+    if (endpointTypes.length === 0) {
+      return NextResponse.json(
+        { error: "At least one endpoint type is required", code: "MISSING_ENDPOINT_TYPES" },
         { status: 400 }
       );
     }
@@ -122,6 +138,7 @@ export async function POST(request: NextRequest) {
           enabled: true,
           sortOrder: nextSortOrder,
           keyMode,
+          endpointTypes,
         },
       });
     });
@@ -162,6 +179,7 @@ export async function POST(request: NextRequest) {
       success: true,
       channel: {
         ...channel,
+        endpointTypes: normalizeChannelEndpointTypes(channel.endpointTypes),
         apiKey: channel.apiKey.slice(0, 8) + "...",
       },
     });
@@ -210,6 +228,24 @@ export async function PUT(request: NextRequest) {
       );
     }
 
+    const existingChannel = await prisma.channel.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        endpointTypes: true,
+        models: {
+          select: { id: true },
+        },
+      },
+    });
+
+    if (!existingChannel) {
+      return NextResponse.json(
+        { error: "Channel not found", code: "NOT_FOUND" },
+        { status: 404 }
+      );
+    }
+
     const name = body.name === undefined ? undefined : readTrimmedString(body.name);
     const baseUrl = body.baseUrl === undefined
       ? undefined
@@ -220,6 +256,9 @@ export async function PUT(request: NextRequest) {
     const keyMode = body.keyMode === undefined
       ? undefined
       : normalizeKeyMode(body.keyMode);
+    const endpointTypes = body.endpointTypes === undefined
+      ? undefined
+      : normalizeChannelEndpointTypes(body.endpointTypes, []);
 
     if (body.name !== undefined && !name) {
       return NextResponse.json(
@@ -251,6 +290,13 @@ export async function PUT(request: NextRequest) {
     if (body.proxy !== undefined) updateData.proxy = readTrimmedString(body.proxy) ?? null;
     if (body.enabled !== undefined) updateData.enabled = Boolean(body.enabled);
     if (keyMode !== undefined) updateData.keyMode = keyMode;
+    if (endpointTypes !== undefined && endpointTypes.length === 0) {
+      return NextResponse.json(
+        { error: "At least one endpoint type is required", code: "MISSING_ENDPOINT_TYPES" },
+        { status: 400 }
+      );
+    }
+    if (endpointTypes !== undefined) updateData.endpointTypes = endpointTypes;
 
     const channel = await prisma.$transaction(async (tx) => {
       const updatedChannel = await tx.channel.update({
@@ -277,10 +323,21 @@ export async function PUT(request: NextRequest) {
       return updatedChannel;
     });
 
+    if (
+      endpointTypes !== undefined
+      && !hasSameChannelEndpointTypes(
+        normalizeChannelEndpointTypes(existingChannel.endpointTypes),
+        endpointTypes
+      )
+    ) {
+      await resetModelsDetectionState(existingChannel.models.map((model) => model.id));
+    }
+
     return NextResponse.json({
       success: true,
       channel: {
         ...channel,
+        endpointTypes: normalizeChannelEndpointTypes(channel.endpointTypes),
         apiKey: channel.apiKey.slice(0, 8) + "...",
       },
     });

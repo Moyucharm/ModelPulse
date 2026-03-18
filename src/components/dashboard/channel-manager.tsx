@@ -24,6 +24,12 @@ import { useAuth } from "@/components/providers/auth-provider";
 import { useToast } from "@/components/ui/toast";
 import { ModelFilterModal } from "@/components/dashboard/model-filter-modal";
 import { ModalPortal, useBodyScrollLock } from "@/components/ui/modal";
+import {
+  CHANNEL_ENDPOINT_OPTIONS,
+  EMPTY_CHANNEL_ENDPOINT_TYPES,
+  endpointTypeLabel,
+  type ChannelEndpointType,
+} from "@/lib/endpoint-types";
 import { cn } from "@/lib/utils";
 
 interface Channel {
@@ -33,6 +39,7 @@ interface Channel {
   apiKey: string;
   proxy: string | null;
   enabled: boolean;
+  endpointTypes: ChannelEndpointType[];
   models?: { lastStatus: boolean | null }[];
   sortOrder?: number;
   keyMode?: string;
@@ -49,6 +56,7 @@ interface ChannelFormData {
   baseUrl: string;
   proxy: string;
   multiKeys: string;
+  endpointTypes: ChannelEndpointType[];
 }
 
 interface ChannelKeyInfo {
@@ -67,12 +75,15 @@ interface ValidateResult {
   error?: string;
 }
 
-const initialFormData: ChannelFormData = {
-  name: "",
-  baseUrl: "",
-  proxy: "",
-  multiKeys: "",
-};
+function createInitialFormData(): ChannelFormData {
+  return {
+    name: "",
+    baseUrl: "",
+    proxy: "",
+    multiKeys: "",
+    endpointTypes: [...EMPTY_CHANNEL_ENDPOINT_TYPES],
+  };
+}
 const SYNC_REQUEST_TIMEOUT_MS = 120_000;
 
 function getChannelBorderClass(channel: Channel): string {
@@ -114,7 +125,7 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
   // Modal state
   const [showModal, setShowModal] = useState(false);
   const [editingChannel, setEditingChannel] = useState<Channel | null>(null);
-  const [formData, setFormData] = useState<ChannelFormData>(initialFormData);
+  const [formData, setFormData] = useState<ChannelFormData>(createInitialFormData);
   const [submitting, setSubmitting] = useState(false);
 
   // Sync state
@@ -296,7 +307,7 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
   // Open add modal
   const handleAdd = () => {
     setEditingChannel(null);
-    setFormData(initialFormData);
+    setFormData(createInitialFormData());
     setMaskedApiKey("");
     setMainKeyFull("");
     setChannelKeysInfo([]);
@@ -314,6 +325,7 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
       baseUrl: channel.baseUrl,
       proxy: channel.proxy || "",
       multiKeys: "",
+      endpointTypes: channel.endpointTypes,
     });
     setChannelKeysInfo([]);
     setValidateResults([]);
@@ -353,6 +365,23 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
     }
   };
 
+  const toggleEndpointType = (type: ChannelEndpointType) => {
+    setFormData((prev) => {
+      const exists = prev.endpointTypes.includes(type);
+      const nextTypes = exists
+        ? prev.endpointTypes.filter((item) => item !== type)
+        : [...prev.endpointTypes, type];
+      const endpointTypes = CHANNEL_ENDPOINT_OPTIONS
+        .map((option) => option.type)
+        .filter((item) => nextTypes.includes(item));
+
+      return {
+        ...prev,
+        endpointTypes,
+      };
+    });
+  };
+
   // Submit form (create or update)
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -368,6 +397,10 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
         throw new Error("渠道名称和地址不能为空");
       }
 
+      if (formData.endpointTypes.length === 0) {
+        throw new Error("请至少选择一种检测方式");
+      }
+
       if (editingChannel) {
         // Update
         const updateBody: Record<string, unknown> = {
@@ -376,6 +409,7 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
           baseUrl: normalizedBaseUrl,
           proxy: normalizedProxy || null,
           keyMode: "multi",
+          endpointTypes: formData.endpointTypes,
         };
 
         // Send keys if textarea has content (works in both edit and list mode after editing)
@@ -403,7 +437,7 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
         setShowModal(false);
         // 只有本次提交了 keys 才打开模型选择页面，否则直接保存关闭
         if (keysSubmitted) {
-          setFilterChannels([{ id: editingChannel.id, name: editingChannel.name }]);
+          setFilterChannels([{ id: editingChannel.id, name: normalizedName }]);
           setFilterFromEdit(true);
           setSyncAllMode(false);
           setShowFilterModal(true);
@@ -421,6 +455,7 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
           proxy: normalizedProxy || null,
           keyMode: "multi",
           keys: formData.multiKeys,
+          endpointTypes: formData.endpointTypes,
         };
 
         const response = await fetch("/api/channel", {
@@ -1250,6 +1285,16 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
                   <div className="text-sm text-muted-foreground truncate">
                     {channel.baseUrl}
                   </div>
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {channel.endpointTypes.map((endpointType) => (
+                      <span
+                        key={`${channel.id}-${endpointType}`}
+                        className="inline-flex items-center rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground"
+                      >
+                        {endpointTypeLabel(endpointType, "compact")}
+                      </span>
+                    ))}
+                  </div>
                   <div className="text-xs text-muted-foreground mt-1">
                     {channel._count?.models || 0} 个模型
                     {(channel._count?.channelKeys ?? 0) > 0 && (
@@ -1437,6 +1482,64 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
                   placeholder="https://api.openai.com"
                   required
                 />
+              </div>
+
+              <div>
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <label className="block text-sm font-medium">
+                    检测方式 <span className="text-destructive">*</span>
+                  </label>
+                  <span className="text-xs text-muted-foreground">
+                    已选 {formData.endpointTypes.length} 项
+                  </span>
+                </div>
+                <div className="rounded-xl border border-border/70 bg-muted/20 p-3 sm:p-4">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                  {CHANNEL_ENDPOINT_OPTIONS.map((option) => {
+                    const checked = formData.endpointTypes.includes(option.type);
+                    return (
+                      <label
+                        key={option.type}
+                        className={cn(
+                          "group flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-3 shadow-sm transition-all",
+                          checked
+                            ? "border-primary/70 bg-background ring-1 ring-primary/20"
+                            : "border-border/70 bg-background hover:border-primary/30 hover:bg-accent/20"
+                        )}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleEndpointType(option.type)}
+                          className="mt-0.5 h-4 w-4 rounded border-input"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="mb-1 flex flex-wrap items-center gap-2">
+                            <div className="text-sm font-medium leading-none">{option.label}</div>
+                            <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                              {option.provider}
+                            </span>
+                          </div>
+                          <div className="text-xs leading-5 text-muted-foreground">
+                            {option.description}
+                          </div>
+                          <div className="mt-2 rounded-md bg-muted/50 px-2 py-1 text-[11px] text-muted-foreground font-mono break-all">
+                            {option.path}
+                          </div>
+                        </div>
+                      </label>
+                    );
+                  })}
+                  </div>
+                  <p className="mt-3 text-xs leading-5 text-muted-foreground">
+                    检测协议现在完全由渠道配置决定；系统不会再根据模型名自动猜测访问方式。
+                  </p>
+                  {formData.endpointTypes.length === 0 && (
+                    <p className="mt-2 text-xs text-destructive">
+                      请至少选择一种检测方式，保存后才会继续获取模型。
+                    </p>
+                  )}
+                </div>
               </div>
 
               {/* API 密钥 + View Toggle */}

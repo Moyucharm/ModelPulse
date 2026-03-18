@@ -2,6 +2,10 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
+import {
+  normalizeChannelEndpointTypes,
+  type ChannelEndpointType,
+} from "@/lib/endpoint-types";
 import { requireAuth } from "@/lib/middleware/auth";
 import { syncChannelModels } from "@/lib/queue/service";
 import type { ChannelExportData } from "../export/route";
@@ -29,6 +33,7 @@ interface RemoteChannel {
   apiKey: string;
   proxy?: string | null;
   enabled?: boolean;
+  endpointTypes?: ChannelEndpointType[];
   keyMode?: string;
   channelKeys?: { apiKey: string; name: string | null }[];
 }
@@ -95,6 +100,7 @@ function normalizeChannelInput(ch: RemoteChannel): RemoteChannel | null {
     apiKey: ch.apiKey,
     proxy: ch.proxy || null,
     enabled: ch.enabled ?? true,
+    endpointTypes: normalizeChannelEndpointTypes(ch.endpointTypes),
     keyMode: ch.keyMode || "single",
     channelKeys: ch.channelKeys,
   };
@@ -157,9 +163,10 @@ export async function POST(request: NextRequest) {
           baseUrl: true,
           apiKey: true,
           proxy: true,
-          enabled: true,
-          keyMode: true,
-          channelKeys: {
+            enabled: true,
+            endpointTypes: true,
+            keyMode: true,
+            channelKeys: {
             select: { apiKey: true, name: true },
           },
         },
@@ -174,10 +181,11 @@ export async function POST(request: NextRequest) {
         name: ch.name,
         baseUrl: ch.baseUrl.replace(/\/$/, ""),
         apiKey: ch.apiKey,
-        proxy: ch.proxy,
-        enabled: ch.enabled,
-        keyMode: ch.keyMode,
-        ...(ch.channelKeys.length > 0 && {
+          proxy: ch.proxy,
+          enabled: ch.enabled,
+          endpointTypes: normalizeChannelEndpointTypes(ch.endpointTypes),
+          keyMode: ch.keyMode,
+          ...(ch.channelKeys.length > 0 && {
           channelKeys: ch.channelKeys.map((k) => ({ apiKey: k.apiKey, name: k.name })),
         }),
       }));
@@ -212,6 +220,7 @@ export async function POST(request: NextRequest) {
                   apiKey: normalizedRemote.apiKey,
                   proxy: normalizedRemote.proxy || null,
                   enabled: normalizedRemote.enabled ?? true,
+                  endpointTypes: normalizeChannelEndpointTypes(normalizedRemote.endpointTypes),
                   keyMode: normalizedRemote.keyMode || "single",
                   ...(normalizedRemote.channelKeys?.length && { channelKeys: normalizedRemote.channelKeys }),
                 });
@@ -341,6 +350,7 @@ export async function POST(request: NextRequest) {
                 apiKey: ch.apiKey,
                 proxy: ch.proxy || null,
                 enabled: ch.enabled ?? true,
+                endpointTypes: ch.endpointTypes,
                 keyMode: ch.keyMode || "single",
               },
             });
@@ -408,6 +418,7 @@ export async function POST(request: NextRequest) {
                 apiKey: ch.apiKey,
                 proxy: ch.proxy || null,
                 enabled: ch.enabled ?? true,
+                endpointTypes: ch.endpointTypes,
                 keyMode: ch.keyMode || "single",
               },
             });
@@ -438,11 +449,12 @@ export async function POST(request: NextRequest) {
               name: finalName,
               baseUrl: ch.baseUrl,
               apiKey: ch.apiKey,
-              proxy: ch.proxy || null,
-              enabled: ch.enabled ?? true,
-              keyMode: ch.keyMode || "single",
-            },
-          });
+                proxy: ch.proxy || null,
+                enabled: ch.enabled ?? true,
+                endpointTypes: ch.endpointTypes,
+                keyMode: ch.keyMode || "single",
+              },
+            });
 
           if (ch.channelKeys && ch.channelKeys.length > 0) {
             await prisma.channelKey.createMany({

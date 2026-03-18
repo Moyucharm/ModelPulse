@@ -2,6 +2,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
+import { normalizeChannelEndpointTypes, type ChannelEndpointType } from "@/lib/endpoint-types";
 import { requireAuth } from "@/lib/middleware/auth";
 
 export interface ChannelExportData {
@@ -13,6 +14,7 @@ export interface ChannelExportData {
     apiKey: string;
     proxy: string | null;
     enabled: boolean;
+    endpointTypes: ChannelEndpointType[];
     keyMode?: string;
     channelKeys?: { apiKey: string; name: string | null }[];
   }[];
@@ -31,6 +33,7 @@ export async function GET(request: NextRequest) {
         apiKey: true,
         proxy: true,
         enabled: true,
+        endpointTypes: true,
         keyMode: true,
         channelKeys: {
           select: { apiKey: true, name: true },
@@ -48,6 +51,7 @@ export async function GET(request: NextRequest) {
         apiKey: ch.apiKey,
         proxy: ch.proxy,
         enabled: ch.enabled,
+        endpointTypes: normalizeChannelEndpointTypes(ch.endpointTypes),
         keyMode: ch.keyMode,
         ...(ch.channelKeys.length > 0 && {
           channelKeys: ch.channelKeys.map((k) => ({

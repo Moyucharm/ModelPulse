@@ -5,6 +5,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useToast } from "@/components/ui/toast";
+import { endpointTypeLabel, type ChannelEndpointType } from "@/lib/endpoint-types";
 import { cn } from "@/lib/utils";
 
 interface HeatmapEntry {
@@ -70,20 +71,8 @@ const TOOLTIP_CLOSE_DELAY_MS = 120;
 const TOOLTIP_MIN_TOP_SPACE = 220;
 
 function formatEndpointLabel(endpointType?: string): string {
-  switch (endpointType) {
-    case "CHAT":
-      return "Chat";
-    case "CLAUDE":
-      return "Claude CLI";
-    case "GEMINI":
-      return "Gemini CLI";
-    case "CODEX":
-      return "Codex CLI";
-    case "IMAGE":
-      return "Image";
-    default:
-      return endpointType || "Unknown";
-  }
+  if (!endpointType) return "Unknown";
+  return endpointTypeLabel(endpointType as ChannelEndpointType, "compact");
 }
 
 function normalizeText(source: string | null | undefined): string {

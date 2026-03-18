@@ -14,6 +14,7 @@ async function main() {
       baseUrl: "https://api.openai.com",
       apiKey: "sk-test-key-placeholder",
       enabled: true,
+      endpointTypes: ["CHAT"],
     },
   });
 
