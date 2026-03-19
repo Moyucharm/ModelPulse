@@ -1,5 +1,5 @@
 // Scheduler configuration modal
-// Allows setting cron schedule, concurrency, delay, and channel/model selection
+// Uses select-driven cron rules instead of free-form input
 
 "use client";
 
@@ -16,45 +16,70 @@ interface SchedulerModalProps {
   onSave?: () => void;
 }
 
-type IntervalUnit = "minute" | "hour" | "day";
+type ScheduleMode = "minute" | "hour" | "day" | "week" | "month";
 
+const CRON_SCHEDULE_SEPARATOR = "||";
 const INTERVAL_PREFIX = "interval:";
 const MAX_DAILY_RUNS = 6;
-const DEFAULT_DAY_TIMES = ["08:00", "12:00", "16:00", "20:00", "22:00", "23:00"];
-const MINUTES_PER_DAY = 24 * 60;
+const DEFAULT_DAY_TIMES = ["00:00", "08:00", "12:00", "18:00", "20:00", "22:00"];
 
-const INTERVAL_UNIT_OPTIONS: Array<{ label: string; value: IntervalUnit }> = [
-  { label: "分钟", value: "minute" },
-  { label: "小时", value: "hour" },
-  { label: "天", value: "day" },
+const SCHEDULE_MODE_OPTIONS: Array<{ value: ScheduleMode; label: string }> = [
+  { value: "minute", label: "按分钟" },
+  { value: "hour", label: "按小时" },
+  { value: "day", label: "按天" },
+  { value: "week", label: "按周" },
+  { value: "month", label: "按月" },
 ];
 
-const INTERVAL_RANGES: Record<IntervalUnit, { min: number; max: number; unitLabel: string }> = {
-  minute: { min: 1, max: 60, unitLabel: "分钟" },
+const INTERVAL_RANGES = {
+  minute: { min: 1, max: 59, unitLabel: "分钟" },
   hour: { min: 1, max: 24, unitLabel: "小时" },
   day: { min: 1, max: 7, unitLabel: "天" },
-};
+} as const;
 
-interface ParsedIntervalSchedule {
-  unit: IntervalUnit;
-  value: number;
-  startAtLocal: string;
+const MINUTE_OPTIONS = Array.from({ length: 60 }, (_, index) => index);
+const HOUR_OPTIONS = Array.from({ length: 24 }, (_, index) => index);
+const DAY_OF_MONTH_OPTIONS = Array.from({ length: 31 }, (_, index) => index + 1);
+
+const INTERVAL_VALUE_OPTIONS = {
+  minute: Array.from({ length: 59 }, (_, index) => index + 1),
+  hour: Array.from({ length: 24 }, (_, index) => index + 1),
+  day: Array.from({ length: 7 }, (_, index) => index + 1),
+} as const;
+
+const WEEKDAY_OPTIONS = [
+  { value: 0, label: "周日" },
+  { value: 1, label: "周一" },
+  { value: 2, label: "周二" },
+  { value: 3, label: "周三" },
+  { value: 4, label: "周四" },
+  { value: 5, label: "周五" },
+  { value: 6, label: "周六" },
+];
+
+interface ParsedScheduleConfig {
+  mode: ScheduleMode;
+  intervalValue: number;
+  minute: number;
+  hour: number;
+  weekday: number;
+  dayOfMonth: number;
   dayRunCount: number;
   dayTimes: string[];
-  isLegacyCron: boolean;
 }
 
-function formatDateTimeLocal(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  const hour = String(date.getHours()).padStart(2, "0");
-  const minute = String(date.getMinutes()).padStart(2, "0");
-  return `${year}-${month}-${day}T${hour}:${minute}`;
+interface DailyCronEntry {
+  minute: number;
+  hour: number;
+  dayInterval: number;
 }
 
-function getDefaultStartAtLocal(): string {
-  return formatDateTimeLocal(new Date());
+function padNumber(value: number): string {
+  return String(value).padStart(2, "0");
+}
+
+function formatTime(hour: number, minute: number): string {
+  return `${padNumber(hour)}:${padNumber(minute)}`;
 }
 
 function normalizeDayTimes(times: string[]): string[] {
@@ -63,32 +88,6 @@ function normalizeDayTimes(times: string[]): string[] {
     normalized[index] = time;
   });
   return normalized;
-}
-
-function formatMinutesToTime(totalMinutes: number): string {
-  const normalized = ((totalMinutes % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY;
-  const hour = String(Math.floor(normalized / 60)).padStart(2, "0");
-  const minute = String(normalized % 60).padStart(2, "0");
-  return `${hour}:${minute}`;
-}
-
-function buildAverageDayTimes(startAtLocal: string, dayRunCount: number): string[] {
-  const parsed = new Date(startAtLocal);
-  const startMinutes = Number.isNaN(parsed.getTime())
-    ? 0
-    : parsed.getHours() * 60 + parsed.getMinutes();
-  const count = Math.max(1, Math.min(MAX_DAILY_RUNS, dayRunCount));
-  const intervalMinutes = Math.floor(MINUTES_PER_DAY / count);
-  const generated = Array.from({ length: count }, (_, index) =>
-    formatMinutesToTime(startMinutes + index * intervalMinutes)
-  ).sort();
-
-  return normalizeDayTimes(generated);
-}
-
-function areDayTimesSame(left: string[], right: string[], count: number): boolean {
-  const selectedCount = Math.max(1, Math.min(MAX_DAILY_RUNS, count));
-  return left.slice(0, selectedCount).join(",") === right.slice(0, selectedCount).join(",");
 }
 
 function isValidTimeString(time: string): boolean {
@@ -102,64 +101,85 @@ function isStrictlyIncreasingTimes(times: string[]): boolean {
   return true;
 }
 
-function getMetaValue(metaSegments: string[], key: string): string | null {
-  const prefix = `${key}=`;
-  const segment = metaSegments.find((item) => item.startsWith(prefix));
-  if (!segment) return null;
-  return segment.slice(prefix.length);
+function parseTimeString(time: string): { hour: number; minute: number } | null {
+  const match = time.match(/^(\d{2}):(\d{2})$/);
+  if (!match) return null;
+
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    return null;
+  }
+
+  return { hour, minute };
 }
 
-function getDefaultIntervalSchedule(isLegacyCron: boolean): ParsedIntervalSchedule {
+function updateTimeString(time: string, part: "hour" | "minute", value: number): string {
+  const parsed = parseTimeString(time) ?? { hour: 0, minute: 0 };
+  return formatTime(
+    part === "hour" ? value : parsed.hour,
+    part === "minute" ? value : parsed.minute
+  );
+}
+
+function splitCronSchedules(cronSchedule: string): string[] {
+  return cronSchedule
+    .split(CRON_SCHEDULE_SEPARATOR)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function createDefaultScheduleConfig(): ParsedScheduleConfig {
   return {
-    unit: "hour",
-    value: 1,
-    startAtLocal: getDefaultStartAtLocal(),
-    dayRunCount: 4,
-    dayTimes: [...DEFAULT_DAY_TIMES],
-    isLegacyCron,
+    mode: "hour",
+    intervalValue: 1,
+    minute: 0,
+    hour: 0,
+    weekday: 1,
+    dayOfMonth: 1,
+    dayRunCount: 1,
+    dayTimes: normalizeDayTimes(["00:00"]),
   };
 }
 
-function parseLegacyCronToInterval(cronSchedule: string): ParsedIntervalSchedule | null {
-  const trimmed = cronSchedule.trim();
-  const defaults = getDefaultIntervalSchedule(true);
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
 
-  const minuteMatch = trimmed.match(/^\*\/(\d{1,2})\s+\*\s+\*\s+\*\s+\*$/);
-  if (minuteMatch) {
-    const value = Number(minuteMatch[1]);
-    if (value >= INTERVAL_RANGES.minute.min && value <= INTERVAL_RANGES.minute.max) {
-      return { ...defaults, unit: "minute", value };
+function parseDailyCronEntry(schedule: string): DailyCronEntry | null {
+  const singleDayMatch = schedule.match(/^(\d{1,2})\s+(\d{1,2})\s+\*\s+\*\s+\*$/);
+  if (singleDayMatch) {
+    const minute = Number(singleDayMatch[1]);
+    const hour = Number(singleDayMatch[2]);
+    if (minute <= 59 && hour <= 23) {
+      return { minute, hour, dayInterval: 1 };
     }
   }
 
-  if (trimmed === "0 * * * *") {
-    return { ...defaults, unit: "hour", value: 1 };
-  }
-
-  const hourMatch = trimmed.match(/^0\s+\*\/(\d{1,2})\s+\*\s+\*\s+\*$/);
-  if (hourMatch) {
-    const value = Number(hourMatch[1]);
-    if (value >= INTERVAL_RANGES.hour.min && value <= INTERVAL_RANGES.hour.max) {
-      return { ...defaults, unit: "hour", value };
-    }
-  }
-
-  const dayMatch = trimmed.match(/^0\s+0\s+\*\/(\d{1,2})\s+\*\s+\*$/);
-  if (dayMatch) {
-    const value = Number(dayMatch[1]);
-    if (value >= INTERVAL_RANGES.day.min && value <= INTERVAL_RANGES.day.max) {
-      return { ...defaults, unit: "day", value, dayRunCount: 1 };
+  const intervalDayMatch = schedule.match(/^(\d{1,2})\s+(\d{1,2})\s+\*\/(\d{1,2})\s+\*\s+\*$/);
+  if (intervalDayMatch) {
+    const minute = Number(intervalDayMatch[1]);
+    const hour = Number(intervalDayMatch[2]);
+    const dayInterval = Number(intervalDayMatch[3]);
+    if (
+      minute <= 59
+      && hour <= 23
+      && dayInterval >= INTERVAL_RANGES.day.min
+      && dayInterval <= INTERVAL_RANGES.day.max
+    ) {
+      return { minute, hour, dayInterval };
     }
   }
 
   return null;
 }
 
-function parseStoredScheduleToInterval(cronSchedule: string): ParsedIntervalSchedule {
-  const defaults = getDefaultIntervalSchedule(true);
-  const trimmed = cronSchedule.trim();
+function parseIntervalSchedule(schedule: string): ParsedScheduleConfig | null {
+  const defaults = createDefaultScheduleConfig();
+  const trimmed = schedule.trim();
   if (!trimmed.startsWith(INTERVAL_PREFIX)) {
-    return parseLegacyCronToInterval(trimmed) ?? defaults;
+    return null;
   }
 
   const [prefix, unitPart, valuePart, ...anchorParts] = trimmed.split(":");
@@ -167,11 +187,11 @@ function parseStoredScheduleToInterval(cronSchedule: string): ParsedIntervalSche
     return defaults;
   }
 
-  const unit = unitPart as IntervalUnit;
-  if (!(unit in INTERVAL_RANGES)) {
+  if (!(unitPart in INTERVAL_RANGES)) {
     return defaults;
   }
 
+  const unit = unitPart as keyof typeof INTERVAL_RANGES;
   const value = Number(valuePart);
   const range = INTERVAL_RANGES[unit];
   if (Number.isNaN(value) || value < range.min || value > range.max) {
@@ -180,75 +200,206 @@ function parseStoredScheduleToInterval(cronSchedule: string): ParsedIntervalSche
 
   const anchorWithMeta = anchorParts.join(":");
   const [anchorIso, ...metaSegments] = anchorWithMeta.split("|");
-  const parsedAnchor = new Date(anchorIso);
-  const startAtLocal = Number.isNaN(parsedAnchor.getTime())
-    ? defaults.startAtLocal
-    : formatDateTimeLocal(parsedAnchor);
+  const anchorDate = new Date(anchorIso);
+  const anchorHour = Number.isNaN(anchorDate.getTime()) ? 0 : anchorDate.getHours();
+  const anchorMinute = Number.isNaN(anchorDate.getTime()) ? 0 : anchorDate.getMinutes();
 
-  let dayTimes = [...DEFAULT_DAY_TIMES];
-  let dayRunCount = 1;
+  if (unit === "minute") {
+    return {
+      ...defaults,
+      mode: "minute",
+      intervalValue: value,
+    };
+  }
 
-  if (unit === "day") {
-    const timesRaw = getMetaValue(metaSegments, "times");
-    if (timesRaw) {
-      const times = timesRaw.split(",").map((item) => item.trim()).filter(Boolean);
-      if (
-        times.length > 0 &&
-        times.length <= MAX_DAILY_RUNS &&
-        times.every(isValidTimeString) &&
-        isStrictlyIncreasingTimes(times)
-      ) {
-        dayRunCount = times.length;
-        dayTimes = normalizeDayTimes(times);
+  if (unit === "hour") {
+    return {
+      ...defaults,
+      mode: "hour",
+      intervalValue: value,
+      minute: anchorMinute,
+      hour: anchorHour,
+    };
+  }
+
+  const timesSegment = metaSegments.find((item) => item.startsWith("times="));
+  const parsedTimes = timesSegment
+    ? timesSegment
+        .slice("times=".length)
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean)
+    : [formatTime(anchorHour, anchorMinute)];
+
+  const validTimes = parsedTimes
+    .filter(isValidTimeString)
+    .sort();
+
+  const dayTimes = validTimes.length > 0 ? validTimes : [formatTime(anchorHour, anchorMinute)];
+  const firstTime = parseTimeString(dayTimes[0]) ?? { hour: 0, minute: 0 };
+
+  return {
+    ...defaults,
+    mode: "day",
+    intervalValue: value,
+    hour: firstTime.hour,
+    minute: firstTime.minute,
+    dayRunCount: clamp(dayTimes.length, 1, MAX_DAILY_RUNS),
+    dayTimes: normalizeDayTimes(dayTimes),
+  };
+}
+
+function parseCronSchedule(schedule: string): ParsedScheduleConfig | null {
+  const defaults = createDefaultScheduleConfig();
+  const schedules = splitCronSchedules(schedule);
+
+  if (schedules.length === 0) {
+    return null;
+  }
+
+  if (schedules.length === 1) {
+    const [single] = schedules;
+
+    if (single === "* * * * *") {
+      return {
+        ...defaults,
+        mode: "minute",
+        intervalValue: 1,
+      };
+    }
+
+    const everyMinuteMatch = single.match(/^\*\/(\d{1,2})\s+\*\s+\*\s+\*\s+\*$/);
+    if (everyMinuteMatch) {
+      const value = Number(everyMinuteMatch[1]);
+      if (value >= INTERVAL_RANGES.minute.min && value <= INTERVAL_RANGES.minute.max) {
+        return {
+          ...defaults,
+          mode: "minute",
+          intervalValue: value,
+        };
       }
-    } else {
-      const timeFromStart = startAtLocal.slice(11, 16);
-      if (isValidTimeString(timeFromStart)) {
-        dayTimes = normalizeDayTimes([timeFromStart]);
+    }
+
+    const hourlyEveryMatch = single.match(/^(\d{1,2})\s+\*\/(\d{1,2})\s+\*\s+\*\s+\*$/);
+    if (hourlyEveryMatch) {
+      const minute = Number(hourlyEveryMatch[1]);
+      const value = Number(hourlyEveryMatch[2]);
+      if (minute <= 59 && value >= INTERVAL_RANGES.hour.min && value <= INTERVAL_RANGES.hour.max) {
+        return {
+          ...defaults,
+          mode: "hour",
+          intervalValue: value,
+          minute,
+        };
+      }
+    }
+
+    const hourlyMatch = single.match(/^(\d{1,2})\s+\*\s+\*\s+\*\s+\*$/);
+    if (hourlyMatch) {
+      const minute = Number(hourlyMatch[1]);
+      if (minute <= 59) {
+        return {
+          ...defaults,
+          mode: "hour",
+          intervalValue: 1,
+          minute,
+        };
+      }
+    }
+
+    const weeklyMatch = single.match(/^(\d{1,2})\s+(\d{1,2})\s+\*\s+\*\s+([0-6])$/);
+    if (weeklyMatch) {
+      const minute = Number(weeklyMatch[1]);
+      const hour = Number(weeklyMatch[2]);
+      const weekday = Number(weeklyMatch[3]);
+      if (minute <= 59 && hour <= 23) {
+        return {
+          ...defaults,
+          mode: "week",
+          minute,
+          hour,
+          weekday,
+        };
+      }
+    }
+
+    const monthlyMatch = single.match(/^(\d{1,2})\s+(\d{1,2})\s+([1-9]|[12]\d|3[01])\s+\*\s+\*$/);
+    if (monthlyMatch) {
+      const minute = Number(monthlyMatch[1]);
+      const hour = Number(monthlyMatch[2]);
+      const dayOfMonth = Number(monthlyMatch[3]);
+      if (minute <= 59 && hour <= 23) {
+        return {
+          ...defaults,
+          mode: "month",
+          minute,
+          hour,
+          dayOfMonth,
+        };
       }
     }
   }
 
-  return {
-    unit,
-    value,
-    startAtLocal,
-    dayRunCount,
-    dayTimes,
-    isLegacyCron: false,
-  };
-}
+  const dailyEntries = schedules
+    .map(parseDailyCronEntry)
+    .filter((entry): entry is DailyCronEntry => entry !== null)
+    .sort((left, right) => {
+      if (left.hour !== right.hour) return left.hour - right.hour;
+      return left.minute - right.minute;
+    });
 
-function buildIntervalSchedule(
-  unit: IntervalUnit,
-  value: number,
-  startAtLocal: string,
-  dayTimes: string[]
-): string {
-  const anchor = new Date(startAtLocal);
-  const anchorIso = Number.isNaN(anchor.getTime()) ? new Date().toISOString() : anchor.toISOString();
-  const offsetMinutes = Number.isNaN(anchor.getTime()) ? new Date().getTimezoneOffset() : anchor.getTimezoneOffset();
-
-  let schedule = `${INTERVAL_PREFIX}${unit}:${value}:${anchorIso}|offset=${offsetMinutes}`;
-  if (unit === "day") {
-    schedule += `|times=${dayTimes.join(",")}`;
+  if (dailyEntries.length === schedules.length && dailyEntries.length > 0) {
+    const dayInterval = dailyEntries[0].dayInterval;
+    if (dailyEntries.every((entry) => entry.dayInterval === dayInterval)) {
+      const dayTimes = dailyEntries.map((entry) => formatTime(entry.hour, entry.minute));
+      const firstTime = dailyEntries[0];
+      return {
+        ...defaults,
+        mode: "day",
+        intervalValue: dayInterval,
+        hour: firstTime.hour,
+        minute: firstTime.minute,
+        dayRunCount: clamp(dayTimes.length, 1, MAX_DAILY_RUNS),
+        dayTimes: normalizeDayTimes(dayTimes),
+      };
+    }
   }
-  return schedule;
-}
 
-function validateIntervalValue(unit: IntervalUnit, value: number): string | null {
-  const range = INTERVAL_RANGES[unit];
-  if (Number.isNaN(value) || value < range.min || value > range.max) {
-    return `${range.unitLabel}范围是 ${range.min}-${range.max}`;
-  }
   return null;
 }
 
-function validateStartAtLocal(startAtLocal: string): string | null {
-  if (!startAtLocal) return "请设置起始时间";
-  const parsed = new Date(startAtLocal);
-  if (Number.isNaN(parsed.getTime())) return "起始时间格式不正确";
-  return null;
+function parseStoredSchedule(schedule: string): ParsedScheduleConfig {
+  return parseIntervalSchedule(schedule) ?? parseCronSchedule(schedule) ?? createDefaultScheduleConfig();
+}
+
+function buildCronSchedule(config: ParsedScheduleConfig): string {
+  if (config.mode === "minute") {
+    return config.intervalValue === 1
+      ? "* * * * *"
+      : `*/${config.intervalValue} * * * *`;
+  }
+
+  if (config.mode === "hour") {
+    const hourField = config.intervalValue === 1 ? "*" : `*/${config.intervalValue}`;
+    return `${config.minute} ${hourField} * * *`;
+  }
+
+  if (config.mode === "day") {
+    const dayField = config.intervalValue === 1 ? "*" : `*/${config.intervalValue}`;
+    const selectedTimes = config.dayTimes.slice(0, config.dayRunCount);
+    return selectedTimes
+      .map((time) => {
+        const parsed = parseTimeString(time) ?? { hour: 0, minute: 0 };
+        return `${parsed.minute} ${parsed.hour} ${dayField} * *`;
+      })
+      .join(CRON_SCHEDULE_SEPARATOR);
+  }
+
+  if (config.mode === "week") {
+    return `${config.minute} ${config.hour} * * ${config.weekday}`;
+  }
+
+  return `${config.minute} ${config.hour} ${config.dayOfMonth} * *`;
 }
 
 function validateDayTimes(dayRunCount: number, dayTimes: string[]): string | null {
@@ -262,6 +413,34 @@ function validateDayTimes(dayRunCount: number, dayTimes: string[]): string | nul
   return null;
 }
 
+function getScheduleSummary(config: ParsedScheduleConfig): string {
+  if (config.mode === "minute") {
+    return config.intervalValue === 1
+      ? "每分钟执行一次"
+      : `每隔 ${config.intervalValue} 分钟执行一次`;
+  }
+
+  if (config.mode === "hour") {
+    return config.intervalValue === 1
+      ? `每小时第 ${padNumber(config.minute)} 分执行`
+      : `每隔 ${config.intervalValue} 小时，在第 ${padNumber(config.minute)} 分执行`;
+  }
+
+  if (config.mode === "day") {
+    const selectedTimes = config.dayTimes.slice(0, config.dayRunCount).join("、");
+    return config.intervalValue === 1
+      ? `每天 ${selectedTimes} 执行`
+      : `每隔 ${config.intervalValue} 天在 ${selectedTimes} 执行`;
+  }
+
+  if (config.mode === "week") {
+    const weekdayLabel = WEEKDAY_OPTIONS.find((item) => item.value === config.weekday)?.label ?? "周一";
+    return `每周 ${weekdayLabel} ${formatTime(config.hour, config.minute)} 执行`;
+  }
+
+  return `每月 ${config.dayOfMonth} 日 ${formatTime(config.hour, config.minute)} 执行`;
+}
+
 export function SchedulerModal({ isOpen, onClose, onSave }: SchedulerModalProps) {
   const { token } = useAuth();
   const { toast } = useToast();
@@ -272,20 +451,20 @@ export function SchedulerModal({ isOpen, onClose, onSave }: SchedulerModalProps)
   const [saving, setSaving] = useState(false);
   const [nextRun, setNextRun] = useState<string | null>(null);
 
-  // Form state
   const [enabled, setEnabled] = useState(true);
-  const [intervalUnit, setIntervalUnit] = useState<IntervalUnit>("hour");
+  const [scheduleMode, setScheduleMode] = useState<ScheduleMode>("hour");
   const [intervalValue, setIntervalValue] = useState(1);
-  const [startAtLocal, setStartAtLocal] = useState(getDefaultStartAtLocal());
-  const [dayRunCount, setDayRunCount] = useState(4);
-  const [dayTimes, setDayTimes] = useState<string[]>([...DEFAULT_DAY_TIMES]);
-  const [useCustomDayTimes, setUseCustomDayTimes] = useState(false);
+  const [minuteOfHour, setMinuteOfHour] = useState(0);
+  const [hourOfDay, setHourOfDay] = useState(0);
+  const [weekday, setWeekday] = useState(1);
+  const [dayOfMonth, setDayOfMonth] = useState(1);
+  const [dayRunCount, setDayRunCount] = useState(1);
+  const [dayTimes, setDayTimes] = useState<string[]>(normalizeDayTimes(["00:00"]));
   const [channelConcurrency, setChannelConcurrency] = useState(5);
   const [maxGlobalConcurrency, setMaxGlobalConcurrency] = useState(30);
   const [minDelayMs, setMinDelayMs] = useState(3000);
   const [maxDelayMs, setMaxDelayMs] = useState(5000);
 
-  // Load config on open
   useEffect(() => {
     if (!isOpen || !token) return;
 
@@ -300,27 +479,23 @@ export function SchedulerModal({ isOpen, onClose, onSave }: SchedulerModalProps)
         });
 
         if (controller.signal.aborted) return;
-
         if (!response.ok) throw new Error("Failed to load config");
 
         const data = await response.json();
-
         if (controller.signal.aborted) return;
 
-        setNextRun(data.nextRun);
+        const parsedSchedule = parseStoredSchedule(data.config.cronSchedule);
 
-        // Initialize form state
+        setNextRun(data.nextRun);
         setEnabled(data.config.enabled);
-        const parsedSchedule = parseStoredScheduleToInterval(data.config.cronSchedule);
-        const averageDayTimes = buildAverageDayTimes(parsedSchedule.startAtLocal, parsedSchedule.dayRunCount);
-        const hasCustomDayTimes = parsedSchedule.unit === "day"
-          && !areDayTimesSame(parsedSchedule.dayTimes, averageDayTimes, parsedSchedule.dayRunCount);
-        setIntervalUnit(parsedSchedule.unit);
-        setIntervalValue(parsedSchedule.value);
-        setStartAtLocal(parsedSchedule.startAtLocal);
+        setScheduleMode(parsedSchedule.mode);
+        setIntervalValue(parsedSchedule.intervalValue);
+        setMinuteOfHour(parsedSchedule.minute);
+        setHourOfDay(parsedSchedule.hour);
+        setWeekday(parsedSchedule.weekday);
+        setDayOfMonth(parsedSchedule.dayOfMonth);
         setDayRunCount(parsedSchedule.dayRunCount);
-        setUseCustomDayTimes(parsedSchedule.unit === "day" ? hasCustomDayTimes : false);
-        setDayTimes(parsedSchedule.unit === "day" && !hasCustomDayTimes ? averageDayTimes : parsedSchedule.dayTimes);
+        setDayTimes(parsedSchedule.dayTimes);
         setChannelConcurrency(data.config.channelConcurrency);
         setMaxGlobalConcurrency(data.config.maxGlobalConcurrency);
         setMinDelayMs(data.config.minDelayMs);
@@ -341,50 +516,39 @@ export function SchedulerModal({ isOpen, onClose, onSave }: SchedulerModalProps)
     return () => controller.abort();
   }, [isOpen, token, toast]);
 
-  useEffect(() => {
-    if (intervalUnit !== "day" || useCustomDayTimes) return;
-    setDayTimes(buildAverageDayTimes(startAtLocal, dayRunCount));
-  }, [intervalUnit, startAtLocal, dayRunCount, useCustomDayTimes]);
-
-  // Handle save
   const handleSave = async (e: FormEvent) => {
     e.preventDefault();
 
-    const scheduleIntervalValue = intervalValue;
-    const effectiveDayTimes = intervalUnit === "day"
-      ? (useCustomDayTimes
-        ? dayTimes.slice(0, dayRunCount)
-        : buildAverageDayTimes(startAtLocal, dayRunCount).slice(0, dayRunCount))
-      : dayTimes.slice(0, dayRunCount);
-
-    const validationError = validateIntervalValue(intervalUnit, scheduleIntervalValue);
-    if (validationError) {
-      toast(validationError, "error");
-      return;
+    if (["minute", "hour", "day"].includes(scheduleMode)) {
+      const range = INTERVAL_RANGES[scheduleMode as keyof typeof INTERVAL_RANGES];
+      if (intervalValue < range.min || intervalValue > range.max) {
+        toast(`${range.unitLabel}范围是 ${range.min}-${range.max}`, "error");
+        return;
+      }
     }
 
-    const startAtError = validateStartAtLocal(startAtLocal);
-    if (startAtError) {
-      toast(startAtError, "error");
-      return;
-    }
-
-    if (intervalUnit === "day") {
-      const dayTimeError = validateDayTimes(dayRunCount, effectiveDayTimes);
+    if (scheduleMode === "day") {
+      const dayTimeError = validateDayTimes(dayRunCount, dayTimes);
       if (dayTimeError) {
         toast(dayTimeError, "error");
         return;
       }
     }
 
+    const scheduleConfig: ParsedScheduleConfig = {
+      mode: scheduleMode,
+      intervalValue,
+      minute: minuteOfHour,
+      hour: hourOfDay,
+      weekday,
+      dayOfMonth,
+      dayRunCount,
+      dayTimes,
+    };
+
     setSaving(true);
     try {
-      const cronSchedule = buildIntervalSchedule(
-        intervalUnit,
-        scheduleIntervalValue,
-        startAtLocal,
-        effectiveDayTimes
-      );
+      const cronSchedule = buildCronSchedule(scheduleConfig);
       const localTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 
       const response = await fetch("/api/scheduler/config", {
@@ -421,7 +585,6 @@ export function SchedulerModal({ isOpen, onClose, onSave }: SchedulerModalProps)
     }
   };
 
-  // Format next run time
   const formatNextRun = (isoString: string | null): string => {
     if (!isoString) return "-";
     const date = new Date(isoString);
@@ -448,234 +611,376 @@ export function SchedulerModal({ isOpen, onClose, onSave }: SchedulerModalProps)
           onClick={onClose}
           aria-hidden="true"
         />
-        <div className="relative bg-card rounded-lg shadow-xl border border-border w-[680px] max-w-[95vw] m-4">
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-          <h2 id="scheduler-modal-title" className="text-lg font-semibold flex items-center gap-2">
-            <Clock className="h-5 w-5 text-blue-500" />
-            定时检测设置
-          </h2>
-          <button
-            onClick={onClose}
-            className="p-1 rounded-md hover:bg-accent transition-colors"
-            aria-label="关闭"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        {/* Content */}
-        {loading ? (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <div className="relative m-4 w-[720px] max-w-[95vw] rounded-lg border border-border bg-card shadow-xl">
+          <div className="flex items-center justify-between border-b border-border px-5 py-4">
+            <h2 id="scheduler-modal-title" className="flex items-center gap-2 text-lg font-semibold">
+              <Clock className="h-5 w-5 text-blue-500" />
+              定时检测设置
+            </h2>
+            <button
+              onClick={onClose}
+              className="rounded-md p-1 hover:bg-accent transition-colors"
+              aria-label="关闭"
+            >
+              <X className="h-5 w-5" />
+            </button>
           </div>
-        ) : (
-          <form onSubmit={handleSave} className="px-5 py-4 space-y-4">
-            {/* Enable toggle */}
-            <div className="flex items-center justify-between">
-              <label className="text-sm font-medium">启用自动检测</label>
-              <button
-                type="button"
-                onClick={() => setEnabled(!enabled)}
-                className={cn(
-                  "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
-                  enabled ? "bg-primary" : "bg-muted"
-                )}
-              >
-                <span
-                  className={cn(
-                    "inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform",
-                    enabled ? "translate-x-6" : "translate-x-1"
-                  )}
-                />
-              </button>
-            </div>
 
-            {/* Cron schedule */}
-            <div>
-              <label className="block text-sm font-medium mb-1.5">执行间隔</label>
-              <div className="overflow-x-auto">
-                <div className="flex items-center gap-2 flex-nowrap min-w-max">
-                  <span className="px-2 text-sm text-foreground">每隔</span>
-                  <input
-                    type="number"
-                    min={INTERVAL_RANGES[intervalUnit].min}
-                    max={INTERVAL_RANGES[intervalUnit].max}
-                    value={intervalValue}
-                    onChange={(e) => setIntervalValue(parseInt(e.target.value, 10) || 0)}
-                    className="w-28 shrink-0 px-3 py-2 rounded-md border border-input bg-background text-sm"
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
+            <form onSubmit={handleSave} className="space-y-4 px-5 py-4">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium">启用自动检测</label>
+                <button
+                  type="button"
+                  onClick={() => setEnabled(!enabled)}
+                  className={cn(
+                    "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                    enabled ? "bg-primary" : "bg-muted"
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform",
+                      enabled ? "translate-x-6" : "translate-x-1"
+                    )}
                   />
-                  <select
-                    value={intervalUnit}
-                    onChange={(e) => {
-                      const nextUnit = e.target.value as IntervalUnit;
-                      const range = INTERVAL_RANGES[nextUnit];
-                      setIntervalUnit(nextUnit);
-                      setIntervalValue((current) => Math.min(range.max, Math.max(range.min, current)));
-                    }}
-                    className="w-32 shrink-0 px-3 py-2 rounded-md border border-input bg-background text-sm"
-                  >
-                    {INTERVAL_UNIT_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                  <span className="px-2 shrink-0 text-sm text-muted-foreground">执行</span>
-                  <div className="ml-2 inline-flex items-center gap-2 whitespace-nowrap shrink-0">
-                    <span className="text-xs text-muted-foreground whitespace-nowrap">起始时间</span>
-                    <input
-                      type="datetime-local"
-                      value={startAtLocal}
-                      onChange={(e) => setStartAtLocal(e.target.value)}
-                      className="w-[200px] shrink-0 px-3 py-2 rounded-md border border-input bg-background text-sm"
-                    />
-                  </div>
-                </div>
+                </button>
               </div>
-              {intervalUnit === "day" && (
-                <div className="mt-2 space-y-2">
-                  <div className="flex items-end gap-2">
-                    <div className="flex-1">
-                      <label className="block text-xs text-muted-foreground mb-1">执行次数</label>
-                      <select
-                        value={dayRunCount}
-                        onChange={(e) => setDayRunCount(Number(e.target.value))}
-                        className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm"
+
+              <div className="space-y-3 rounded-xl border border-border/70 bg-muted/20 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <label className="text-sm font-medium">Cron 规则</label>
+                </div>
+
+                <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+                  {SCHEDULE_MODE_OPTIONS.map((option) => {
+                    const active = scheduleMode === option.value;
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => setScheduleMode(option.value)}
+                        className={cn(
+                          "rounded-lg border px-3 py-3 text-center transition-colors",
+                          active
+                            ? "border-primary/70 bg-background ring-1 ring-primary/20"
+                            : "border-border/70 bg-background hover:border-primary/30 hover:bg-accent/20"
+                        )}
                       >
-                        {Array.from({ length: MAX_DAILY_RUNS }, (_, index) => index + 1).map((count) => (
-                          <option key={count} value={count}>
-                            {count}次
+                        <div className="text-sm font-medium">{option.label}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="rounded-lg border border-border/70 bg-background p-3">
+                  {scheduleMode === "minute" && (
+                    <div className="flex flex-wrap items-center gap-2 text-sm">
+                      <span>每隔</span>
+                      <select
+                        value={intervalValue}
+                        onChange={(e) => setIntervalValue(Number(e.target.value))}
+                        className="rounded-md border border-input bg-background px-3 py-2"
+                      >
+                        {INTERVAL_VALUE_OPTIONS.minute.map((value) => (
+                          <option key={value} value={value}>
+                            {value}
                           </option>
                         ))}
                       </select>
+                      <span>分钟执行一次</span>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (useCustomDayTimes) {
-                          setUseCustomDayTimes(false);
-                          setDayTimes(buildAverageDayTimes(startAtLocal, dayRunCount));
-                        } else {
-                          setUseCustomDayTimes(true);
-                        }
-                      }}
-                      className="px-3 py-2 rounded-md border border-input bg-background text-sm hover:bg-accent transition-colors"
-                    >
-                      {useCustomDayTimes ? "恢复平均分配" : "自定义时间"}
-                    </button>
-                  </div>
-                  {!useCustomDayTimes && (
-                    <p className="text-xs text-muted-foreground">
-                      默认按起始时间平均分配：{buildAverageDayTimes(startAtLocal, dayRunCount).slice(0, dayRunCount).join("、")}
-                    </p>
                   )}
-                  {useCustomDayTimes && (
-                    <>
-                      <div className="grid grid-cols-2 gap-2">
+
+                  {scheduleMode === "hour" && (
+                    <div className="flex flex-wrap items-center gap-2 text-sm">
+                      <span>每隔</span>
+                      <select
+                        value={intervalValue}
+                        onChange={(e) => setIntervalValue(Number(e.target.value))}
+                        className="rounded-md border border-input bg-background px-3 py-2"
+                      >
+                        {INTERVAL_VALUE_OPTIONS.hour.map((value) => (
+                          <option key={value} value={value}>
+                            {value}
+                          </option>
+                        ))}
+                      </select>
+                      <span>小时，在第</span>
+                      <select
+                        value={minuteOfHour}
+                        onChange={(e) => setMinuteOfHour(Number(e.target.value))}
+                        className="rounded-md border border-input bg-background px-3 py-2"
+                      >
+                        {MINUTE_OPTIONS.map((value) => (
+                          <option key={value} value={value}>
+                            {value}
+                          </option>
+                        ))}
+                      </select>
+                      <span>分钟执行</span>
+                    </div>
+                  )}
+
+                  {scheduleMode === "day" && (
+                    <div className="space-y-3">
+                      <div className="flex flex-wrap items-center gap-2 text-sm">
+                        <span>每隔</span>
+                        <select
+                          value={intervalValue}
+                          onChange={(e) => setIntervalValue(Number(e.target.value))}
+                          className="rounded-md border border-input bg-background px-3 py-2"
+                        >
+                          {INTERVAL_VALUE_OPTIONS.day.map((value) => (
+                            <option key={value} value={value}>
+                              {value}
+                            </option>
+                          ))}
+                        </select>
+                        <span>天执行</span>
+                        <select
+                          value={dayRunCount}
+                          onChange={(e) => setDayRunCount(Number(e.target.value))}
+                          className="rounded-md border border-input bg-background px-3 py-2"
+                        >
+                          {Array.from({ length: MAX_DAILY_RUNS }, (_, index) => index + 1).map((count) => (
+                            <option key={count} value={count}>
+                              {count} 次
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
                         {Array.from({ length: dayRunCount }, (_, index) => (
-                          <div key={`day-time-${index}`}>
-                            <label className="block text-xs text-muted-foreground mb-1">
-                              第{index + 1}次（HH:mm）
-                            </label>
-                            <input
-                              type="time"
-                              value={dayTimes[index]}
-                              min={index > 0 ? dayTimes[index - 1] : undefined}
-                              onChange={(e) => {
-                                const nextTimes = [...dayTimes];
-                                nextTimes[index] = e.target.value;
-                                setDayTimes(nextTimes);
-                              }}
-                              className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm"
-                            />
+                          <div key={`day-time-${index}`} className="rounded-md border border-border/70 bg-muted/20 p-2">
+                            <div className="mb-2 text-xs text-muted-foreground">第 {index + 1} 次</div>
+                            <div className="flex items-center gap-2">
+                              <select
+                                value={parseTimeString(dayTimes[index])?.hour ?? 0}
+                                onChange={(e) => {
+                                  const nextTimes = [...dayTimes];
+                                  nextTimes[index] = updateTimeString(dayTimes[index], "hour", Number(e.target.value));
+                                  setDayTimes(nextTimes);
+                                }}
+                                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                              >
+                                {HOUR_OPTIONS.map((value) => (
+                                  <option key={value} value={value}>
+                                    {padNumber(value)} 时
+                                  </option>
+                                ))}
+                              </select>
+                              <select
+                                value={parseTimeString(dayTimes[index])?.minute ?? 0}
+                                onChange={(e) => {
+                                  const nextTimes = [...dayTimes];
+                                  nextTimes[index] = updateTimeString(dayTimes[index], "minute", Number(e.target.value));
+                                  setDayTimes(nextTimes);
+                                }}
+                                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                              >
+                                {MINUTE_OPTIONS.map((value) => (
+                                  <option key={value} value={value}>
+                                    {value} 分
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
                           </div>
                         ))}
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        时间必须递增且不能重复，例如 08:00、12:00、16:00、20:00
+                        同一天内的执行时间必须按顺序递增，系统会自动生成多条 cron 规则。
                       </p>
-                    </>
+                    </div>
+                  )}
+
+                  {scheduleMode === "week" && (
+                    <div className="flex flex-wrap items-center gap-2 text-sm">
+                      <span>每周</span>
+                      <select
+                        value={weekday}
+                        onChange={(e) => setWeekday(Number(e.target.value))}
+                        className="rounded-md border border-input bg-background px-3 py-2"
+                      >
+                        {WEEKDAY_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        value={hourOfDay}
+                        onChange={(e) => setHourOfDay(Number(e.target.value))}
+                        className="rounded-md border border-input bg-background px-3 py-2"
+                      >
+                        {HOUR_OPTIONS.map((value) => (
+                          <option key={value} value={value}>
+                            {padNumber(value)} 时
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        value={minuteOfHour}
+                        onChange={(e) => setMinuteOfHour(Number(e.target.value))}
+                        className="rounded-md border border-input bg-background px-3 py-2"
+                      >
+                        {MINUTE_OPTIONS.map((value) => (
+                          <option key={value} value={value}>
+                            {value} 分
+                          </option>
+                        ))}
+                      </select>
+                      <span>执行</span>
+                    </div>
+                  )}
+
+                  {scheduleMode === "month" && (
+                    <div className="flex flex-wrap items-center gap-2 text-sm">
+                      <span>每月</span>
+                      <select
+                        value={dayOfMonth}
+                        onChange={(e) => setDayOfMonth(Number(e.target.value))}
+                        className="rounded-md border border-input bg-background px-3 py-2"
+                      >
+                        {DAY_OF_MONTH_OPTIONS.map((value) => (
+                          <option key={value} value={value}>
+                            {value} 日
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        value={hourOfDay}
+                        onChange={(e) => setHourOfDay(Number(e.target.value))}
+                        className="rounded-md border border-input bg-background px-3 py-2"
+                      >
+                        {HOUR_OPTIONS.map((value) => (
+                          <option key={value} value={value}>
+                            {padNumber(value)} 时
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        value={minuteOfHour}
+                        onChange={(e) => setMinuteOfHour(Number(e.target.value))}
+                        className="rounded-md border border-input bg-background px-3 py-2"
+                      >
+                        {MINUTE_OPTIONS.map((value) => (
+                          <option key={value} value={value}>
+                            {value} 分
+                          </option>
+                        ))}
+                      </select>
+                      <span>执行</span>
+                    </div>
                   )}
                 </div>
-              )}
-              {nextRun && enabled && (
-                <p className="text-xs text-muted-foreground mt-1">
-                  下次执行: {formatNextRun(nextRun)}
-                </p>
-              )}
-            </div>
 
-            {/* Concurrency and Delay in one row */}
-            <div className="grid grid-cols-4 gap-3">
-              <div>
-                <label className="block text-xs text-muted-foreground mb-1">全局并发</label>
-                <input
-                  type="number"
-                  min="1"
-                  max="100"
-                  value={maxGlobalConcurrency}
-                  onChange={(e) => setMaxGlobalConcurrency(parseInt(e.target.value) || 30)}
-                  className="w-full px-2 py-2 rounded-md border border-input bg-background text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-muted-foreground mb-1">渠道并发</label>
-                <input
-                  type="number"
-                  min="1"
-                  max="20"
-                  value={channelConcurrency}
-                  onChange={(e) => setChannelConcurrency(parseInt(e.target.value) || 5)}
-                  className="w-full px-2 py-2 rounded-md border border-input bg-background text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-muted-foreground mb-1">最小间隔</label>
-                <input
-                  type="number"
-                  min="0"
-                  max="60000"
-                  step="500"
-                  value={minDelayMs}
-                  onChange={(e) => setMinDelayMs(parseInt(e.target.value) || 0)}
-                  className="w-full px-2 py-2 rounded-md border border-input bg-background text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-muted-foreground mb-1">最大间隔</label>
-                <input
-                  type="number"
-                  min="0"
-                  max="60000"
-                  step="500"
-                  value={maxDelayMs}
-                  onChange={(e) => setMaxDelayMs(parseInt(e.target.value) || 0)}
-                  className="w-full px-2 py-2 rounded-md border border-input bg-background text-sm"
-                />
-              </div>
-            </div>
+                <div className="rounded-lg bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                  <div>规则说明：{getScheduleSummary({
+                    mode: scheduleMode,
+                    intervalValue,
+                    minute: minuteOfHour,
+                    hour: hourOfDay,
+                    weekday,
+                    dayOfMonth,
+                    dayRunCount,
+                    dayTimes,
+                  })}</div>
+                  <div className="mt-1 font-mono text-[11px] break-all">
+                    Cron: {buildCronSchedule({
+                      mode: scheduleMode,
+                      intervalValue,
+                      minute: minuteOfHour,
+                      hour: hourOfDay,
+                      weekday,
+                      dayOfMonth,
+                      dayRunCount,
+                      dayTimes,
+                    })}
+                  </div>
+                </div>
 
-            {/* Actions */}
-            <div className="flex justify-end gap-2 pt-3 border-t border-border">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-4 py-2 rounded-md border border-input bg-background text-sm font-medium hover:bg-accent transition-colors"
-              >
-                取消
-              </button>
-              <button
-                type="submit"
-                disabled={saving}
-                className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors flex items-center gap-2"
-              >
-                {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-                保存
-              </button>
-            </div>
-          </form>
-        )}
+                {nextRun && enabled && (
+                  <p className="text-xs text-muted-foreground">
+                    下次执行: {formatNextRun(nextRun)}
+                  </p>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <div>
+                  <label className="mb-1 block text-xs text-muted-foreground">全局并发</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="100"
+                    value={maxGlobalConcurrency}
+                    onChange={(e) => setMaxGlobalConcurrency(parseInt(e.target.value, 10) || 30)}
+                    className="w-full rounded-md border border-input bg-background px-2 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-muted-foreground">渠道并发</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="20"
+                    value={channelConcurrency}
+                    onChange={(e) => setChannelConcurrency(parseInt(e.target.value, 10) || 5)}
+                    className="w-full rounded-md border border-input bg-background px-2 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-muted-foreground">最小间隔</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="60000"
+                    step="500"
+                    value={minDelayMs}
+                    onChange={(e) => setMinDelayMs(parseInt(e.target.value, 10) || 0)}
+                    className="w-full rounded-md border border-input bg-background px-2 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-muted-foreground">最大间隔</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="60000"
+                    step="500"
+                    value={maxDelayMs}
+                    onChange={(e) => setMaxDelayMs(parseInt(e.target.value, 10) || 0)}
+                    className="w-full rounded-md border border-input bg-background px-2 py-2 text-sm"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 border-t border-border pt-3">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent transition-colors"
+                >
+                  取消
+                </button>
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                >
+                  {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                  保存
+                </button>
+              </div>
+            </form>
+          )}
         </div>
       </div>
     </ModalPortal>

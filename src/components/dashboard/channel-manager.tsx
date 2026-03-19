@@ -1493,47 +1493,38 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
                     已选 {formData.endpointTypes.length} 项
                   </span>
                 </div>
-                <div className="rounded-xl border border-border/70 bg-muted/20 p-3 sm:p-4">
-                  <div className="grid gap-3 sm:grid-cols-2">
-                  {CHANNEL_ENDPOINT_OPTIONS.map((option) => {
-                    const checked = formData.endpointTypes.includes(option.type);
-                    return (
-                      <label
-                        key={option.type}
-                        className={cn(
-                          "group flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-3 shadow-sm transition-all",
-                          checked
-                            ? "border-primary/70 bg-background ring-1 ring-primary/20"
-                            : "border-border/70 bg-background hover:border-primary/30 hover:bg-accent/20"
-                        )}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => toggleEndpointType(option.type)}
-                          className="mt-0.5 h-4 w-4 rounded border-input"
-                        />
-                        <div className="min-w-0 flex-1">
-                          <div className="mb-1 flex flex-wrap items-center gap-2">
-                            <div className="text-sm font-medium leading-none">{option.label}</div>
-                            <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-                              {option.provider}
-                            </span>
+                <div className="rounded-xl border border-border/70 bg-muted/20 p-3">
+                  <div className="flex flex-col gap-2">
+                    {CHANNEL_ENDPOINT_OPTIONS.map((option) => {
+                      const checked = formData.endpointTypes.includes(option.type);
+                      return (
+                        <label
+                          key={option.type}
+                          className={cn(
+                            "group flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-2.5 transition-all",
+                            checked
+                              ? "border-primary/70 bg-background ring-1 ring-primary/20"
+                              : "border-border/70 bg-background hover:border-primary/30 hover:bg-accent/20"
+                          )}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleEndpointType(option.type)}
+                            className="h-4 w-4 rounded border-input"
+                          />
+                          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
+                            <div className="text-sm font-medium leading-none">
+                              {option.compactLabel}
+                            </div>
+                            <div className="min-w-0 rounded-md bg-muted/60 px-2 py-1 font-mono text-[11px] text-muted-foreground break-all">
+                              {option.path}
+                            </div>
                           </div>
-                          <div className="text-xs leading-5 text-muted-foreground">
-                            {option.description}
-                          </div>
-                          <div className="mt-2 rounded-md bg-muted/50 px-2 py-1 text-[11px] text-muted-foreground font-mono break-all">
-                            {option.path}
-                          </div>
-                        </div>
-                      </label>
-                    );
-                  })}
+                        </label>
+                      );
+                    })}
                   </div>
-                  <p className="mt-3 text-xs leading-5 text-muted-foreground">
-                    检测协议现在完全由渠道配置决定；系统不会再根据模型名自动猜测访问方式。
-                  </p>
                   {formData.endpointTypes.length === 0 && (
                     <p className="mt-2 text-xs text-destructive">
                       请至少选择一种检测方式，保存后才会继续获取模型。
