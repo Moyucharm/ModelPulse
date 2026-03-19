@@ -6,6 +6,7 @@ import { createRedisDuplicate, getRedisClient, isRedisConfigured } from "@/lib/r
 import { executeDetection, sleep, randomDelay } from "@/lib/detection/detector";
 import { persistDetectionResult } from "@/lib/detection/model-state";
 import type { DetectionJobData, DetectionResult } from "@/lib/detection/types";
+import { handleScheduledModelCompletion } from "@/lib/notifications/service";
 import { DETECTION_QUEUE_NAME } from "./constants";
 import {
   isDetectionStopped,
@@ -250,6 +251,14 @@ async function runDetectionPipeline(
       isModelComplete,
     });
 
+    if (isModelComplete && data.triggerSource === "scheduled") {
+      try {
+        await handleScheduledModelCompletion(data.modelId);
+      } catch (error) {
+        console.error("[notifications] failed to process scheduled model completion:", error);
+      }
+    }
+
     console.log(`[worker] ${data.modelName}/${data.endpointType} → ${result.status} (${result.latency}ms)`);
 
     return result;
@@ -264,19 +273,27 @@ async function runDetectionPipeline(
     try {
       await persistDetectionResult(data, failResult);
       const isModelComplete = !(await hasPendingJobsForModel(data.modelId, jobId));
-      await publishProgress({
-        channelId: data.channelId,
-        modelId: data.modelId,
+        await publishProgress({
+          channelId: data.channelId,
+          modelId: data.modelId,
         modelName: data.modelName,
         endpointType: data.endpointType,
         status: failResult.status,
         latency: failResult.latency,
         timestamp: Date.now(),
-        isModelComplete,
-      });
-    } catch {
-      // Do not mask original failure
-    }
+          isModelComplete,
+        });
+
+        if (isModelComplete && data.triggerSource === "scheduled") {
+          try {
+            await handleScheduledModelCompletion(data.modelId);
+          } catch (error) {
+            console.error("[notifications] failed to process scheduled model completion:", error);
+          }
+        }
+      } catch {
+        // Do not mask original failure
+      }
 
     return failResult;
   } finally {

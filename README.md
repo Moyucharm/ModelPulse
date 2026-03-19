@@ -41,6 +41,13 @@ Key variables:
 - `CRON_SCHEDULE=0 * * * *`
 - `ADMIN_PASSWORD`, `JWT_SECRET`
 
+## Notifications
+
+- Automatic detection can notify on model failures and recoveries.
+- Supported providers: Telegram Bot and Message Nest.
+- Message Nest setup guide: `docs/message-nest-notifications.md`
+- If you want secrets encrypted at rest, set `ENCRYPTION_KEY` in `.env`.
+
 ## Docker
 
 ```bash

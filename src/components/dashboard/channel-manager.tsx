@@ -18,9 +18,11 @@ import {
   Download,
   Upload,
   Cloud,
+  Bell,
   Key,
 } from "lucide-react";
 import { useAuth } from "@/components/providers/auth-provider";
+import { NotificationSettingsModal } from "@/components/dashboard/notification-settings-modal";
 import { useToast } from "@/components/ui/toast";
 import { ModelFilterModal } from "@/components/dashboard/model-filter-modal";
 import { ModalPortal, useBodyScrollLock } from "@/components/ui/modal";
@@ -177,7 +179,7 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
   const [channelPage, setChannelPage] = useState(1);
   const CHANNELS_PER_PAGE = 12;
 
-  // 云通知 state
+  // WebDAV 备份 state
   const [showWebDAVModal, setShowWebDAVModal] = useState(false);
   const [webdavUploading, setWebdavUploading] = useState(false);
   const [webdavDownloading, setWebdavDownloading] = useState(false);
@@ -189,8 +191,15 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
   });
   const [webdavEnvConfigured, setWebdavEnvConfigured] = useState(false);
   const [webdavMode, setWebdavMode] = useState<"merge" | "replace">("merge");
+  const [showNotificationModal, setShowNotificationModal] = useState(false);
 
-  useBodyScrollLock(showModal || showImportModal || showWebDAVModal || showFilterModal);
+  useBodyScrollLock(
+    showModal
+      || showImportModal
+      || showWebDAVModal
+      || showFilterModal
+      || showNotificationModal,
+  );
 
   // Handle ESC key to close modals
   useEffect(() => {
@@ -200,16 +209,17 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
         if (showImportModal) setShowImportModal(false);
         if (showWebDAVModal) setShowWebDAVModal(false);
         if (showFilterModal) setShowFilterModal(false);
+        if (showNotificationModal) setShowNotificationModal(false);
       }
     };
     document.addEventListener("keydown", handleEsc);
     return () => document.removeEventListener("keydown", handleEsc);
-  }, [showModal, showImportModal, showWebDAVModal, showFilterModal]);
+  }, [showModal, showImportModal, showWebDAVModal, showFilterModal, showNotificationModal]);
 
-  // Load cloud sync config from localStorage and API
+  // Load WebDAV config from sessionStorage and API
   useEffect(() => {
     const loadWebdavConfig = async () => {
-      // First load from localStorage
+      // First load from sessionStorage
       let config = {
         url: "",
         username: "",
@@ -1050,7 +1060,7 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
     reader.readAsText(file);
   };
 
-  // 云通知 sync
+  // WebDAV 备份 sync
   const handleWebDAVSync = async (action: "upload" | "download") => {
     if (action === "upload") {
       setWebdavUploading(true);
@@ -1186,15 +1196,28 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
             <RefreshCw className="h-4 w-4" />
           </button>
 
-          {/* 云通知按钮 */}
+          {/* 通知设置按钮 */}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowNotificationModal(true);
+            }}
+            className="inline-flex items-center justify-center w-8 h-8 rounded-md border border-input bg-background hover:bg-accent transition-colors"
+            title="通知设置"
+            aria-label="通知设置"
+          >
+            <Bell className="h-4 w-4" />
+          </button>
+
+          {/* WebDAV 备份按钮 */}
           <button
             onClick={(e) => {
               e.stopPropagation();
               setShowWebDAVModal(true);
             }}
             className="inline-flex items-center justify-center w-8 h-8 rounded-md border border-input bg-background hover:bg-accent transition-colors"
-            title="云通知"
-            aria-label="云通知"
+            title="WebDAV 备份"
+            aria-label="WebDAV 备份"
           >
             <Cloud className="h-4 w-4" />
           </button>
@@ -1962,7 +1985,7 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
         </ModalPortal>
       )}
 
-      {/* 云通知 Modal */}
+      {/* WebDAV 备份 Modal */}
       {showWebDAVModal && (
         <ModalPortal>
           <div
@@ -1978,7 +2001,7 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
             />
             <div className="relative w-full max-w-lg mx-4 bg-card rounded-lg shadow-lg border border-border max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between p-4 border-b border-border">
-              <h2 id="webdav-modal-title" className="text-lg font-semibold">云通知</h2>
+              <h2 id="webdav-modal-title" className="text-lg font-semibold">WebDAV 备份</h2>
               <button
                 onClick={() => setShowWebDAVModal(false)}
                 className="p-1 rounded-md hover:bg-accent transition-colors"
@@ -1992,7 +2015,7 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
               {/* Env config hint */}
               {webdavEnvConfigured && (
                 <div className="p-3 rounded-md bg-green-500/10 border border-green-500/20 text-sm text-green-600 dark:text-green-400">
-                  已从环境变量加载云通知配置。密码留空将使用环境变量中的密码。
+                  已从环境变量加载 WebDAV 配置。密码留空将使用环境变量中的密码。
                 </div>
               )}
 
@@ -2001,7 +2024,7 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
                 坚果云用户：需先在网页端创建同步文件夹，URL 填写到该文件夹路径。密码需使用应用密码（非登录密码）。
               </div>
 
-              {/* 云服务 URL */}
+              {/* WebDAV URL */}
               <div>
                 <label className="block text-sm font-medium mb-1">
                   服务地址 <span className="text-destructive">*</span>
@@ -2107,6 +2130,11 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
         </div>
         </ModalPortal>
       )}
+
+      <NotificationSettingsModal
+        isOpen={showNotificationModal}
+        onClose={() => setShowNotificationModal(false)}
+      />
 
       {/* Model Filter Modal - shown after save or sync */}
       {showFilterModal && filterChannels.length > 0 && (

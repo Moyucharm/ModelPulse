@@ -245,12 +245,13 @@ async function runDetectionOnce(): Promise<void> {
 
     if (freshConfig.detectAllChannels) {
       // Full detection - all channels
-      await triggerFullDetection();
+      await triggerFullDetection({ triggerSource: "scheduled" });
     } else {
       // Selective detection - only specified channels/models
       await triggerSelectiveDetection(
         freshConfig.selectedChannelIds,
-        freshConfig.selectedModelIds
+        freshConfig.selectedModelIds,
+        { triggerSource: "scheduled" },
       );
     }
   } catch {

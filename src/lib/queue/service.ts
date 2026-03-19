@@ -11,8 +11,15 @@ import {
   clearStoppedFlag,
   isQueueRunning,
 } from "./queue";
-import type { DetectionJobData } from "@/lib/detection/types";
+import type {
+  DetectionJobData,
+  DetectionTriggerSource,
+} from "@/lib/detection/types";
 import { resolveChannelDetectionEndpoints } from "./endpoint-filter";
+
+interface TriggerDetectionOptions {
+  triggerSource?: DetectionTriggerSource;
+}
 
 /**
  * Resolve the correct apiKey for a model.
@@ -39,6 +46,7 @@ async function resolveApiKey(
 async function buildJobsForModels(
   channel: {
     id: string;
+    name: string;
     baseUrl: string;
     apiKey: string;
     proxy: string | null;
@@ -48,7 +56,8 @@ async function buildJobsForModels(
     id: string;
     modelName: string;
     channelKeyId?: string | null;
-  }>
+  }>,
+  triggerSource: DetectionTriggerSource,
 ): Promise<DetectionJobData[]> {
   const jobs: DetectionJobData[] = [];
   const endpointsToTest = resolveChannelDetectionEndpoints(channel.endpointTypes);
@@ -85,6 +94,7 @@ async function buildJobsForModels(
     for (const endpointType of endpointsToTest) {
       jobs.push({
         channelId: channel.id,
+        channelName: channel.name,
         modelId: model.id,
         modelName: model.modelName,
         checkRunId,
@@ -92,6 +102,7 @@ async function buildJobsForModels(
         apiKey,
         proxy: channel.proxy,
         endpointType,
+        triggerSource,
       });
     }
   }
@@ -115,12 +126,13 @@ function getDetectionCounts(jobs: DetectionJobData[]): { modelCount: number; job
  * Trigger detection for all enabled channels
  * Detect models already stored in database
  */
-export async function triggerFullDetection(): Promise<{
+export async function triggerFullDetection(options?: TriggerDetectionOptions): Promise<{
   channelCount: number;
   modelCount: number;
   jobCount: number;
   jobIds: string[];
 }> {
+  const triggerSource = options?.triggerSource ?? "manual";
 
   // Clear stopped flag from previous detection stop
   await clearStoppedFlag();
@@ -158,7 +170,7 @@ export async function triggerFullDetection(): Promise<{
   const jobs: DetectionJobData[] = [];
 
   for (const channel of channelsWithModels) {
-    const channelJobs = await buildJobsForModels(channel, channel.models);
+    const channelJobs = await buildJobsForModels(channel, channel.models, triggerSource);
     jobs.push(...channelJobs);
   }
 
@@ -185,12 +197,14 @@ export async function triggerFullDetection(): Promise<{
  */
 export async function triggerChannelDetection(
   channelId: string,
-  modelIds?: string[]
+  modelIds?: string[],
+  options?: TriggerDetectionOptions,
 ): Promise<{
   modelCount: number;
   jobCount: number;
   jobIds: string[];
 }> {
+  const triggerSource = options?.triggerSource ?? "manual";
 
   // Clear stopped flag from previous detection stop
   await clearStoppedFlag();
@@ -226,7 +240,7 @@ export async function triggerChannelDetection(
     await resetModelsDetectionState(modelsToTest.map((m) => m.id));
   }
 
-  const jobs = await buildJobsForModels(channel, modelsToTest);
+  const jobs = await buildJobsForModels(channel, modelsToTest, triggerSource);
 
   if (jobs.length === 0) {
     console.log("[detect] no jobs built for channel", channelId);
@@ -243,9 +257,13 @@ export async function triggerChannelDetection(
 /**
  * Trigger detection for a specific model (all endpoints)
  */
-export async function triggerModelDetection(modelId: string): Promise<{
+export async function triggerModelDetection(
+  modelId: string,
+  options?: TriggerDetectionOptions,
+): Promise<{
   jobIds: string[];
 }> {
+  const triggerSource = options?.triggerSource ?? "manual";
 
   // Clear stopped flag from previous detection stop
   await clearStoppedFlag();
@@ -278,6 +296,7 @@ export async function triggerModelDetection(modelId: string): Promise<{
 
   const jobs: DetectionJobData[] = endpointsToTest.map((endpointType) => ({
     channelId: model.channel.id,
+    channelName: model.channel.name,
     modelId: model.id,
     modelName: model.modelName,
     checkRunId,
@@ -285,6 +304,7 @@ export async function triggerModelDetection(modelId: string): Promise<{
     apiKey,
     proxy: model.channel.proxy,
     endpointType,
+    triggerSource,
   }));
 
   const jobIds = await addDetectionJobsBulk(jobs);
@@ -635,20 +655,22 @@ export async function getDetectionProgress() {
  */
 export async function triggerSelectiveDetection(
   channelIds: string[] | null,
-  modelIdsByChannel: Record<string, string[]> | null
+  modelIdsByChannel: Record<string, string[]> | null,
+  options?: TriggerDetectionOptions,
 ): Promise<{
   channelCount: number;
   modelCount: number;
   jobCount: number;
   jobIds: string[];
 }> {
+  const triggerSource = options?.triggerSource ?? "manual";
 
   // Clear stopped flag from previous detection stop
   await clearStoppedFlag();
 
   // If no specific channels selected, fall back to full detection
   if (!channelIds || channelIds.length === 0) {
-    return triggerFullDetection();
+    return triggerFullDetection({ triggerSource });
   }
 
   // Fetch selected channels
@@ -692,7 +714,7 @@ export async function triggerSelectiveDetection(
       modelsToTest = channel.models.filter((m) => selectedModelIds.includes(m.id));
     }
 
-    const channelJobs = await buildJobsForModels(channel, modelsToTest);
+    const channelJobs = await buildJobsForModels(channel, modelsToTest, triggerSource);
     jobs.push(...channelJobs);
   }
 

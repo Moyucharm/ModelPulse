@@ -2,6 +2,8 @@
 
 import { EndpointType, CheckStatus } from "@/generated/prisma";
 
+export type DetectionTriggerSource = "manual" | "scheduled";
+
 // Endpoint type detection result
 export interface EndpointDetection {
   type: EndpointType;
@@ -31,6 +33,7 @@ export interface ModelInfo {
 // Detection job data
 export interface DetectionJobData {
   channelId: string;
+  channelName: string;
   modelId: string;
   modelName: string;
   checkRunId: string;
@@ -38,6 +41,7 @@ export interface DetectionJobData {
   apiKey: string;
   proxy?: string | null;
   endpointType: EndpointType;
+  triggerSource: DetectionTriggerSource;
 }
 
 // Channel with models for batch detection
