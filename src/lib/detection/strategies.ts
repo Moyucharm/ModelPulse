@@ -199,18 +199,65 @@ function buildImageEndpoint(
  * Parse model list from /v1/models response
  */
 export function parseModelsResponse(data: unknown): string[] {
-  if (!data || typeof data !== "object") {
-    return [];
+  const extractModelId = (item: unknown): string | null => {
+    if (typeof item === "string") {
+      const modelId = item.trim();
+      return modelId ? modelId : null;
+    }
+
+    if (!item || typeof item !== "object") {
+      return null;
+    }
+
+    const candidate = item as Record<string, unknown>;
+    for (const key of ["id", "name", "model", "modelName"]) {
+      const value = candidate[key];
+      if (typeof value === "string") {
+        const modelId = value.trim();
+        if (modelId) {
+          return modelId;
+        }
+      }
+    }
+
+    return null;
+  };
+
+  const candidateLists: unknown[][] = [];
+
+  if (Array.isArray(data)) {
+    candidateLists.push(data);
   }
 
-  const response = data as { data?: unknown[] };
-  if (!Array.isArray(response.data)) {
-    return [];
+  if (data && typeof data === "object") {
+    const response = data as Record<string, unknown>;
+
+    for (const key of ["data", "models", "results", "items"]) {
+      const value = response[key];
+      if (Array.isArray(value)) {
+        candidateLists.push(value);
+      }
+    }
+
+    const nestedData = response.data;
+    if (nestedData && typeof nestedData === "object" && !Array.isArray(nestedData)) {
+      const nestedResponse = nestedData as Record<string, unknown>;
+      if (Array.isArray(nestedResponse.models)) {
+        candidateLists.push(nestedResponse.models);
+      }
+    }
   }
 
-  return response.data
-    .filter((item): item is { id: string } =>
-      item !== null && typeof item === "object" && "id" in item && typeof item.id === "string"
-    )
-    .map((item) => item.id);
+  const models = new Set<string>();
+
+  for (const list of candidateLists) {
+    for (const item of list) {
+      const modelId = extractModelId(item);
+      if (modelId) {
+        models.add(modelId);
+      }
+    }
+  }
+
+  return Array.from(models);
 }

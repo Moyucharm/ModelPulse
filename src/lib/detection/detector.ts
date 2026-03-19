@@ -1,13 +1,32 @@
 // Core detector - executes HTTP requests to test model availability
 
 import { CheckStatus, EndpointType } from "@/generated/prisma";
-import { buildEndpointDetection } from "./strategies";
+import { buildEndpointDetection, parseModelsResponse } from "./strategies";
 import type { DetectionJobData, DetectionResult, FetchModelsResult } from "./types";
 import { proxyFetch } from "@/lib/utils/proxy-fetch";
 import { DETECTION_TIMEOUT_MS } from "./constants";
 
 // Global proxy from environment
 const GLOBAL_PROXY = process.env.GLOBAL_PROXY;
+
+function withEndpointTypeHint(errorMsg: string, endpointType: EndpointType, url: string): string {
+  if (endpointType !== EndpointType.CODEX) {
+    return errorMsg;
+  }
+
+  const normalized = errorMsg.toLowerCase();
+  const likelyEndpointMismatch = normalized === "fetch failed"
+    || normalized.includes("not found")
+    || normalized.includes("method not allowed")
+    || normalized.includes("cannot post")
+    || normalized.includes("unsupported");
+
+  if (!likelyEndpointMismatch) {
+    return errorMsg;
+  }
+
+  return `${errorMsg}（请求 ${url}；当前渠道可能只支持 /v1/chat/completions，请将渠道端点改为 CHAT）`;
+}
 
 /**
  * Sleep utility for anti-blocking delays
@@ -416,6 +435,8 @@ export async function executeDetection(job: DetectionJobData): Promise<Detection
       // Ignore error body parsing failures
     }
 
+    errorMsg = withEndpointTypeHint(errorMsg, job.endpointType, endpoint.url);
+
     return {
       status: CheckStatus.FAIL,
       latency,
@@ -431,7 +452,7 @@ export async function executeDetection(job: DetectionJobData): Promise<Detection
       if (error.name === "AbortError") {
         errorMsg = `Timeout after ${DETECTION_TIMEOUT_MS}ms`;
       } else {
-        errorMsg = error.message;
+        errorMsg = withEndpointTypeHint(error.message, job.endpointType, endpoint.url);
       }
     }
 
@@ -486,19 +507,9 @@ export async function fetchModels(
     }
 
     const data = await response.json();
+    const models = parseModelsResponse(data);
 
-    // Parse OpenAI-style models response
-    if (data && Array.isArray(data.data)) {
-      const models = data.data
-        .filter((m: unknown): m is { id: string } =>
-          m !== null && typeof m === "object" && "id" in m && typeof m.id === "string"
-        )
-        .map((m: { id: string }) => m.id);
-
-      return { models };
-    }
-
-    return { models: [] };
+    return { models };
   } catch (error) {
     let errorMsg: string;
     if (error instanceof Error) {
