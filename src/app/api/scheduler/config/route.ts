@@ -15,6 +15,7 @@ const DEFAULT_CONFIG = {
   maxGlobalConcurrency: parseInt(process.env.MAX_GLOBAL_CONCURRENCY || "30", 10),
   minDelayMs: parseInt(process.env.DETECTION_MIN_DELAY_MS || "3000", 10),
   maxDelayMs: parseInt(process.env.DETECTION_MAX_DELAY_MS || "5000", 10),
+  maxAttempts: parseInt(process.env.DETECTION_MAX_ATTEMPTS || "3", 10),
   detectAllChannels: process.env.AUTO_DETECT_ALL_CHANNELS !== "false",
 };
 
@@ -142,6 +143,7 @@ export async function GET(request: NextRequest) {
         maxGlobalConcurrency: config.maxGlobalConcurrency,
         minDelayMs: config.minDelayMs,
         maxDelayMs: config.maxDelayMs,
+        maxAttempts: config.maxAttempts,
         detectAllChannels: config.detectAllChannels,
         selectedChannelIds: config.selectedChannelIds,
         selectedModelIds: config.selectedModelIds,
@@ -173,6 +175,7 @@ export async function PUT(request: NextRequest) {
       maxGlobalConcurrency,
       minDelayMs,
       maxDelayMs,
+      maxAttempts,
       detectAllChannels,
       selectedChannelIds,
       selectedModelIds,
@@ -217,6 +220,15 @@ export async function PUT(request: NextRequest) {
       }
     }
 
+    if (maxAttempts !== undefined) {
+      if (!Number.isInteger(maxAttempts) || maxAttempts < 1 || maxAttempts > 10) {
+        return NextResponse.json(
+          { error: "Maximum attempts must be an integer between 1 and 10", code: "INVALID_MAX_ATTEMPTS" },
+          { status: 400 }
+        );
+      }
+    }
+
     // Update or create config
     const config = await prisma.schedulerConfig.upsert({
       where: { id: "default" },
@@ -228,6 +240,7 @@ export async function PUT(request: NextRequest) {
         ...(maxGlobalConcurrency !== undefined && { maxGlobalConcurrency }),
         ...(minDelayMs !== undefined && { minDelayMs }),
         ...(maxDelayMs !== undefined && { maxDelayMs }),
+        ...(maxAttempts !== undefined && { maxAttempts }),
         ...(detectAllChannels !== undefined && { detectAllChannels }),
         ...(selectedChannelIds !== undefined && { selectedChannelIds }),
         ...(selectedModelIds !== undefined && { selectedModelIds }),
@@ -242,6 +255,7 @@ export async function PUT(request: NextRequest) {
         ...(maxGlobalConcurrency !== undefined && { maxGlobalConcurrency }),
         ...(minDelayMs !== undefined && { minDelayMs }),
         ...(maxDelayMs !== undefined && { maxDelayMs }),
+        ...(maxAttempts !== undefined && { maxAttempts }),
         ...(detectAllChannels !== undefined && { detectAllChannels }),
         ...(selectedChannelIds !== undefined && { selectedChannelIds }),
         ...(selectedModelIds !== undefined && { selectedModelIds }),
@@ -267,6 +281,7 @@ export async function PUT(request: NextRequest) {
         maxGlobalConcurrency: config.maxGlobalConcurrency,
         minDelayMs: config.minDelayMs,
         maxDelayMs: config.maxDelayMs,
+        maxAttempts: config.maxAttempts,
         detectAllChannels: config.detectAllChannels,
         selectedChannelIds: config.selectedChannelIds,
         selectedModelIds: config.selectedModelIds,

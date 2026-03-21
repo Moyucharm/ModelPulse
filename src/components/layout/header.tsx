@@ -49,6 +49,7 @@ interface SchedulerStatus {
     maxGlobalConcurrency: number;
     minDelayMs: number;
     maxDelayMs: number;
+    maxAttempts: number;
   };
   cleanup: {
     running: boolean;

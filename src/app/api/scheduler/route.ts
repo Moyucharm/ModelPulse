@@ -17,19 +17,21 @@ const DEFAULT_RUNTIME_CONFIG = {
   maxGlobalConcurrency: parseInt(process.env.MAX_GLOBAL_CONCURRENCY || "30", 10),
   minDelayMs: parseInt(process.env.DETECTION_MIN_DELAY_MS || "3000", 10),
   maxDelayMs: parseInt(process.env.DETECTION_MAX_DELAY_MS || "5000", 10),
+  maxAttempts: parseInt(process.env.DETECTION_MAX_ATTEMPTS || "3", 10),
 };
 
 async function getRuntimeConfig() {
   try {
     const config = await prisma.schedulerConfig.findUnique({
       where: { id: "default" },
-      select: {
-        channelConcurrency: true,
-        maxGlobalConcurrency: true,
-        minDelayMs: true,
-        maxDelayMs: true,
-      },
-    });
+        select: {
+          channelConcurrency: true,
+          maxGlobalConcurrency: true,
+          minDelayMs: true,
+          maxDelayMs: true,
+          maxAttempts: true,
+        },
+      });
 
     if (!config) {
       return DEFAULT_RUNTIME_CONFIG;
@@ -40,6 +42,7 @@ async function getRuntimeConfig() {
       maxGlobalConcurrency: config.maxGlobalConcurrency,
       minDelayMs: config.minDelayMs,
       maxDelayMs: config.maxDelayMs,
+      maxAttempts: config.maxAttempts,
     };
   } catch {
     return DEFAULT_RUNTIME_CONFIG;

@@ -11,6 +11,7 @@ const ENV_DETECTION_SCHEDULE = process.env.CRON_SCHEDULE || "0 * * * *";
 const ENV_CLEANUP_SCHEDULE = process.env.CLEANUP_SCHEDULE || "0 2 * * *";
 const ENV_CRON_TIMEZONE = process.env.CRON_TIMEZONE || "Asia/Shanghai";
 const ENV_LOG_RETENTION_DAYS = parseInt(process.env.LOG_RETENTION_DAYS || "7", 10);
+const ENV_DETECTION_MAX_ATTEMPTS = parseInt(process.env.DETECTION_MAX_ATTEMPTS || "3", 10);
 const CRON_SCHEDULE_SEPARATOR = "||";
 const INTERVAL_SCHEDULE_PREFIX = "interval:";
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -308,6 +309,7 @@ export async function loadSchedulerConfig(): Promise<SchedulerConfigState> {
           maxGlobalConcurrency: parseInt(process.env.MAX_GLOBAL_CONCURRENCY || "30", 10),
           minDelayMs: parseInt(process.env.DETECTION_MIN_DELAY_MS || "3000", 10),
           maxDelayMs: parseInt(process.env.DETECTION_MAX_DELAY_MS || "5000", 10),
+          maxAttempts: ENV_DETECTION_MAX_ATTEMPTS,
           detectAllChannels: ENV_AUTO_DETECT_ALL_CHANNELS,
         },
       });

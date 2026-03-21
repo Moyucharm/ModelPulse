@@ -54,6 +54,10 @@ Key variables:
 docker compose up -d
 ```
 
+Updating the image and restarting the container is enough.
+The container entrypoint automatically runs Prisma `db push` on startup,
+so SQLite schema changes are applied without any extra manual step.
+
 With optional Redis profile:
 
 ```bash

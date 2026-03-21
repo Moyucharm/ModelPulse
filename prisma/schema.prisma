@@ -100,6 +100,7 @@ model SchedulerConfig {
   maxGlobalConcurrency Int      @default(30) @map("max_global_concurrency")
   minDelayMs           Int      @default(3000) @map("min_delay_ms")
   maxDelayMs           Int      @default(5000) @map("max_delay_ms")
+  maxAttempts          Int      @default(3) @map("max_attempts")
   detectAllChannels    Boolean  @default(true) @map("detect_all_channels")
   selectedChannelIds   Json?    @map("selected_channel_ids")
   selectedModelIds     Json?    @map("selected_model_ids")

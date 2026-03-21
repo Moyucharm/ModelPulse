@@ -15,6 +15,7 @@ const ENV_WEBDAV_USERNAME = process.env.WEBDAV_USERNAME;
 const ENV_WEBDAV_PASSWORD = process.env.WEBDAV_PASSWORD;
 const ENV_WEBDAV_FILENAME = process.env.WEBDAV_FILENAME;
 const ENV_AUTO_DETECT_ALL_CHANNELS = process.env.AUTO_DETECT_ALL_CHANNELS !== "false";
+const ENV_DETECTION_MAX_ATTEMPTS = parseInt(process.env.DETECTION_MAX_ATTEMPTS || "3", 10);
 
 interface WebDAVConfig {
   url: string;
@@ -246,6 +247,7 @@ export async function POST(request: NextRequest) {
               maxGlobalConcurrency: schedulerConfig.maxGlobalConcurrency,
               minDelayMs: schedulerConfig.minDelayMs,
               maxDelayMs: schedulerConfig.maxDelayMs,
+              maxAttempts: schedulerConfig.maxAttempts,
               detectAllChannels: schedulerConfig.detectAllChannels,
               selectedChannelIds: schedulerConfig.selectedChannelIds,
               selectedModelIds: schedulerConfig.selectedModelIds,
@@ -501,6 +503,7 @@ export async function POST(request: NextRequest) {
               maxGlobalConcurrency: (data.schedulerConfig.maxGlobalConcurrency as number) ?? 30,
               minDelayMs: (data.schedulerConfig.minDelayMs as number) ?? 3000,
               maxDelayMs: (data.schedulerConfig.maxDelayMs as number) ?? 5000,
+              maxAttempts: (data.schedulerConfig.maxAttempts as number) ?? ENV_DETECTION_MAX_ATTEMPTS,
               detectAllChannels: (data.schedulerConfig.detectAllChannels as boolean) ?? ENV_AUTO_DETECT_ALL_CHANNELS,
               selectedChannelIds: (data.schedulerConfig.selectedChannelIds as string[]) ?? null,
               selectedModelIds: (data.schedulerConfig.selectedModelIds as Record<string, string[]>) ?? null,
@@ -514,6 +517,7 @@ export async function POST(request: NextRequest) {
               maxGlobalConcurrency: (data.schedulerConfig.maxGlobalConcurrency as number) ?? 30,
               minDelayMs: (data.schedulerConfig.minDelayMs as number) ?? 3000,
               maxDelayMs: (data.schedulerConfig.maxDelayMs as number) ?? 5000,
+              maxAttempts: (data.schedulerConfig.maxAttempts as number) ?? ENV_DETECTION_MAX_ATTEMPTS,
               detectAllChannels: (data.schedulerConfig.detectAllChannels as boolean) ?? ENV_AUTO_DETECT_ALL_CHANNELS,
               selectedChannelIds: (data.schedulerConfig.selectedChannelIds as string[]) ?? null,
               selectedModelIds: (data.schedulerConfig.selectedModelIds as Record<string, string[]>) ?? null,

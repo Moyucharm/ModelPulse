@@ -464,6 +464,7 @@ export function SchedulerModal({ isOpen, onClose, onSave }: SchedulerModalProps)
   const [maxGlobalConcurrency, setMaxGlobalConcurrency] = useState(30);
   const [minDelayMs, setMinDelayMs] = useState(3000);
   const [maxDelayMs, setMaxDelayMs] = useState(5000);
+  const [maxAttempts, setMaxAttempts] = useState(3);
 
   useEffect(() => {
     if (!isOpen || !token) return;
@@ -500,6 +501,7 @@ export function SchedulerModal({ isOpen, onClose, onSave }: SchedulerModalProps)
         setMaxGlobalConcurrency(data.config.maxGlobalConcurrency);
         setMinDelayMs(data.config.minDelayMs);
         setMaxDelayMs(data.config.maxDelayMs);
+        setMaxAttempts(data.config.maxAttempts ?? 3);
       } catch (error) {
         if (error instanceof Error && error.name === "AbortError") return;
         if (!controller.signal.aborted) {
@@ -535,6 +537,11 @@ export function SchedulerModal({ isOpen, onClose, onSave }: SchedulerModalProps)
       }
     }
 
+    if (maxAttempts < 1 || maxAttempts > 10) {
+      toast("总尝试次数范围是 1-10", "error");
+      return;
+    }
+
     const scheduleConfig: ParsedScheduleConfig = {
       mode: scheduleMode,
       intervalValue,
@@ -565,6 +572,7 @@ export function SchedulerModal({ isOpen, onClose, onSave }: SchedulerModalProps)
           maxGlobalConcurrency,
           minDelayMs,
           maxDelayMs,
+          maxAttempts,
         }),
       });
 
@@ -913,7 +921,7 @@ export function SchedulerModal({ isOpen, onClose, onSave }: SchedulerModalProps)
                 )}
               </div>
 
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
                 <div>
                   <label className="mb-1 block text-xs text-muted-foreground">全局并发</label>
                   <input
@@ -960,7 +968,22 @@ export function SchedulerModal({ isOpen, onClose, onSave }: SchedulerModalProps)
                     className="w-full rounded-md border border-input bg-background px-2 py-2 text-sm"
                   />
                 </div>
+                <div>
+                  <label className="mb-1 block text-xs text-muted-foreground">总尝试次数</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="10"
+                    value={maxAttempts}
+                    onChange={(e) => setMaxAttempts(parseInt(e.target.value, 10) || 1)}
+                    className="w-full rounded-md border border-input bg-background px-2 py-2 text-sm"
+                  />
+                </div>
               </div>
+
+              <p className="text-xs text-muted-foreground">
+                总尝试次数包含首次请求；设置为 1 表示失败后不重试。
+              </p>
 
               <div className="flex justify-end gap-2 border-t border-border pt-3">
                 <button

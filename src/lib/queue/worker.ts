@@ -5,6 +5,7 @@ import prisma from "@/lib/prisma";
 import { createRedisDuplicate, getRedisClient, isRedisConfigured } from "@/lib/redis";
 import { executeDetection, sleep, randomDelay } from "@/lib/detection/detector";
 import { persistDetectionResult } from "@/lib/detection/model-state";
+import { executeDetectionWithRetry } from "@/lib/detection/retry";
 import type { DetectionJobData, DetectionResult } from "@/lib/detection/types";
 import { handleScheduledModelCompletion } from "@/lib/notifications/service";
 import { DETECTION_QUEUE_NAME } from "./constants";
@@ -28,6 +29,7 @@ interface WorkerRuntimeConfig {
   maxGlobalConcurrency: number;
   minDelayMs: number;
   maxDelayMs: number;
+  maxAttempts: number;
 }
 
 const DEFAULT_WORKER_CONFIG: WorkerRuntimeConfig = {
@@ -35,6 +37,7 @@ const DEFAULT_WORKER_CONFIG: WorkerRuntimeConfig = {
   maxGlobalConcurrency: parseInt(process.env.MAX_GLOBAL_CONCURRENCY || "30", 10),
   minDelayMs: parseInt(process.env.DETECTION_MIN_DELAY_MS || "3000", 10),
   maxDelayMs: parseInt(process.env.DETECTION_MAX_DELAY_MS || "5000", 10),
+  maxAttempts: parseInt(process.env.DETECTION_MAX_ATTEMPTS || "3", 10),
 };
 
 // Persist worker state across HMR (same pattern as prisma.ts)
@@ -97,6 +100,7 @@ function normalizeConfig(config: Partial<WorkerRuntimeConfig>): WorkerRuntimeCon
     maxGlobalConcurrency: parsePositiveInt(config.maxGlobalConcurrency, DEFAULT_WORKER_CONFIG.maxGlobalConcurrency),
     minDelayMs,
     maxDelayMs,
+    maxAttempts: parsePositiveInt(config.maxAttempts, DEFAULT_WORKER_CONFIG.maxAttempts),
   };
 }
 
@@ -116,6 +120,7 @@ async function loadWorkerConfig(): Promise<WorkerRuntimeConfig> {
             maxGlobalConcurrency: true,
             minDelayMs: true,
             maxDelayMs: true,
+            maxAttempts: true,
           },
         });
 
@@ -212,6 +217,15 @@ function buildStoppedResult(data: DetectionJobData): DetectionResult {
   };
 }
 
+function buildUnexpectedFailureResult(data: DetectionJobData, error: unknown): DetectionResult {
+  return {
+    status: "FAIL",
+    latency: 0,
+    endpointType: data.endpointType,
+    errorMsg: error instanceof Error ? error.message : "Detection execution failed",
+  };
+}
+
 async function runDetectionPipeline(
   data: DetectionJobData,
   jobId?: string,
@@ -235,7 +249,26 @@ async function runDetectionPipeline(
     const delay = randomDelay(runtimeConfig.minDelayMs, runtimeConfig.maxDelayMs);
     await sleep(delay);
 
-    const result = await executeDetection(data);
+    const execution = await executeDetectionWithRetry(data, {
+      maxAttempts: runtimeConfig.maxAttempts,
+      execute: executeDetection,
+      sleep,
+      getRetryDelayMs: () => randomDelay(runtimeConfig.minDelayMs, runtimeConfig.maxDelayMs),
+      isStopped: isDetectionStopped,
+      buildStoppedResult: () => buildStoppedResult(data),
+      buildUnexpectedFailureResult: (error) => buildUnexpectedFailureResult(data, error),
+      onRetry: ({ attempt, maxAttempts, result, delayMs }) => {
+        console.warn(
+          `[worker] retrying ${data.modelName}/${data.endpointType} after attempt ${attempt}/${maxAttempts} failed: ${result.errorMsg || "unknown error"}; next delay ${delayMs}ms`
+        );
+      },
+    });
+
+    if (execution.stopped) {
+      return execution.result;
+    }
+
+    const result = execution.result;
     await persistDetectionResult(data, result);
 
     const isModelComplete = !(await hasPendingJobsForModel(data.modelId, jobId));
@@ -259,41 +292,37 @@ async function runDetectionPipeline(
       }
     }
 
-    console.log(`[worker] ${data.modelName}/${data.endpointType} → ${result.status} (${result.latency}ms)`);
+    const attemptSuffix = execution.attemptsUsed > 1 ? ` after ${execution.attemptsUsed} attempts` : "";
+    console.log(`[worker] ${data.modelName}/${data.endpointType} → ${result.status} (${result.latency}ms)${attemptSuffix}`);
 
     return result;
   } catch (error) {
-    const failResult: DetectionResult = {
-      status: "FAIL",
-      latency: 0,
-      endpointType: data.endpointType,
-      errorMsg: error instanceof Error ? error.message : "Detection execution failed",
-    };
+    const failResult = buildUnexpectedFailureResult(data, error);
 
     try {
       await persistDetectionResult(data, failResult);
       const isModelComplete = !(await hasPendingJobsForModel(data.modelId, jobId));
-        await publishProgress({
-          channelId: data.channelId,
-          modelId: data.modelId,
+      await publishProgress({
+        channelId: data.channelId,
+        modelId: data.modelId,
         modelName: data.modelName,
         endpointType: data.endpointType,
         status: failResult.status,
         latency: failResult.latency,
         timestamp: Date.now(),
-          isModelComplete,
-        });
+        isModelComplete,
+      });
 
-        if (isModelComplete && data.triggerSource === "scheduled") {
-          try {
-            await handleScheduledModelCompletion(data.modelId);
-          } catch (error) {
-            console.error("[notifications] failed to process scheduled model completion:", error);
-          }
+      if (isModelComplete && data.triggerSource === "scheduled") {
+        try {
+          await handleScheduledModelCompletion(data.modelId);
+        } catch (error) {
+          console.error("[notifications] failed to process scheduled model completion:", error);
         }
-      } catch {
-        // Do not mask original failure
       }
+    } catch {
+      // Do not mask original failure
+    }
 
     return failResult;
   } finally {
