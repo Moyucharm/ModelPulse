@@ -255,7 +255,8 @@ async function runDetectionOnce(): Promise<void> {
         { triggerSource: "scheduled" },
       );
     }
-  } catch {
+  } catch (error) {
+    console.error("[scheduler] scheduled detection failed:", error);
   } finally {
     ss.detectionRunning = false;
   }
@@ -407,7 +408,8 @@ export function startCleanupCron(): CronJob {
     async () => {
       try {
         await cleanupOldLogs();
-      } catch {
+      } catch (error) {
+        console.error("[scheduler] cleanup job failed:", error);
       }
     },
     null, // onComplete

@@ -2,7 +2,7 @@
 
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
-import { randomBytes } from "crypto";
+import { randomBytes, timingSafeEqual } from "crypto";
 
 // Auto-generated JWT secret (persists for the lifetime of the process)
 let generatedJwtSecret: string | null = null;
@@ -48,8 +48,14 @@ export async function authenticateAdmin(password: string): Promise<string | null
     // Bcrypt hash
     isValid = await bcrypt.compare(password, adminPassword);
   } else {
-    // Plain text comparison
-    isValid = password === adminPassword;
+    // Plain text comparison using timing-safe equality to prevent timing attacks
+    try {
+      const a = Buffer.from(password);
+      const b = Buffer.from(adminPassword);
+      isValid = a.length === b.length && timingSafeEqual(a, b);
+    } catch {
+      isValid = false;
+    }
   }
 
   if (!isValid) {

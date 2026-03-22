@@ -641,8 +641,8 @@ export async function getDetectionProgress() {
     ...stats,
     isRunning: isQueueRunning(stats),
     progress:
-      stats.total > 0 || stats.completed > 0 || stats.failed > 0
-        ? Math.round(((stats.completed + stats.failed) / (stats.total + stats.completed + stats.failed)) * 100)
+      stats.total > 0
+        ? Math.round(((stats.completed + stats.failed) / stats.total) * 100)
         : 0,
     testingModelIds,
   };

@@ -154,6 +154,9 @@ function channelSemaphoreKey(channelId: string): string {
   return `detection:semaphore:channel:${channelId}`;
 }
 
+// Maximum time to wait for a semaphore slot before giving up (ms)
+const SEMAPHORE_ACQUIRE_TIMEOUT_MS = SEMAPHORE_TTL * 1000;
+
 async function acquireSlots(channelId: string, config: WorkerRuntimeConfig): Promise<void> {
   if (!isRedisConfigured) {
     return;
@@ -161,8 +164,15 @@ async function acquireSlots(channelId: string, config: WorkerRuntimeConfig): Pro
 
   const redis = getRedisClient();
   const channelKey = channelSemaphoreKey(channelId);
+  const deadline = Date.now() + SEMAPHORE_ACQUIRE_TIMEOUT_MS;
 
   while (true) {
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `acquireSlots timed out after ${SEMAPHORE_ACQUIRE_TIMEOUT_MS}ms waiting for a slot (channel=${channelId})`
+      );
+    }
+
     const globalCount = await redis.incr(GLOBAL_SEMAPHORE_KEY);
     if (globalCount > config.maxGlobalConcurrency) {
       await redis.decr(GLOBAL_SEMAPHORE_KEY);
@@ -253,7 +263,12 @@ async function runDetectionPipeline(
       maxAttempts: runtimeConfig.maxAttempts,
       execute: executeDetection,
       sleep,
-      getRetryDelayMs: () => randomDelay(runtimeConfig.minDelayMs, runtimeConfig.maxDelayMs),
+      getRetryDelayMs: ({ attempt }) => {
+        // Exponential backoff with jitter: base * 2^(attempt-1) + random jitter
+        const base = runtimeConfig.minDelayMs * Math.pow(2, attempt - 1);
+        const jitter = randomDelay(0, runtimeConfig.maxDelayMs - runtimeConfig.minDelayMs);
+        return Math.min(base + jitter, runtimeConfig.maxDelayMs * 4);
+      },
       isStopped: isDetectionStopped,
       buildStoppedResult: () => buildStoppedResult(data),
       buildUnexpectedFailureResult: (error) => buildUnexpectedFailureResult(data, error),

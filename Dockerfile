@@ -66,10 +66,10 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
-# Create non-root user + install su-exec for entrypoint user switching
+# Create non-root user + install su-exec and sqlite3 for entrypoint user switching and DB migrations
 RUN addgroup --system --gid 1001 nodejs \
     && adduser --system --uid 1001 nextjs \
-    && apk add --no-cache su-exec
+    && apk add --no-cache su-exec sqlite
 
 # Copy necessary files from builder
 COPY --from=builder /app/public ./public

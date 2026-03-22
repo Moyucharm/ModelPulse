@@ -81,20 +81,44 @@ else
   RUN_AS=""
 fi
 
-# --- 2. Initialize / sync database schema ---
+# --- 2. Apply any missing columns before prisma db push (idempotent, SQLite only) ---
+# This guards against schema drift when upgrading from older images that lack new columns.
+run_sqlite_migrations() {
+  if [ ! -f "${DB_FILE}" ]; then
+    return 0
+  fi
+  SQLITE_BIN=""
+  if command -v sqlite3 >/dev/null 2>&1; then
+    SQLITE_BIN="sqlite3"
+  fi
+  if [ -z "${SQLITE_BIN}" ]; then
+    log "sqlite3 not found, skipping pre-migration patches."
+    return 0
+  fi
+  # scheduler_config.max_attempts (added in feat: simplify scheduler and endpoint settings)
+  if ! ${SQLITE_BIN} "${DB_FILE}" "PRAGMA table_info(scheduler_config);" 2>/dev/null | grep -q 'max_attempts'; then
+    log "Applying migration: adding max_attempts to scheduler_config..."
+    ${SQLITE_BIN} "${DB_FILE}" "ALTER TABLE scheduler_config ADD COLUMN max_attempts INTEGER NOT NULL DEFAULT 3;" 2>&1 || \
+      log "Warning: Failed to add max_attempts column."
+  fi
+}
+
+# --- 3. Initialize / sync database schema ---
 if [ ! -f "${DB_FILE}" ]; then
   log "Database not found, initializing schema..."
   run_prisma_db_push 2>&1 || {
     log "Warning: Schema init failed. App may not work correctly."
   }
 else
-  log "Database exists, syncing schema..."
+  log "Database exists, applying pre-migration patches..."
+  run_sqlite_migrations
+  log "Syncing schema with prisma db push..."
   run_prisma_db_push 2>&1 || {
     log "Warning: Schema sync failed. Manual migration may be needed."
   }
 fi
 
-# --- 3. Start application as nextjs user ---
+# --- 4. Start application as nextjs user ---
 log "Starting application..."
 if [ -n "${RUN_AS}" ]; then
   exec su-exec "${RUN_AS}" "$@"
