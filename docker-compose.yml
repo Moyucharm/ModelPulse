@@ -1,16 +1,16 @@
-# Model Check - Docker Compose Configuration
-# https://github.com/Moyucharm/model-check
+# ModelPulse - Docker Compose Configuration
+# https://github.com/Moyucharm/ModelPulse
 
 services:
   app:
-    image: ${APP_IMAGE:-ghcr.io/moyucharm/model-check:latest}
-    container_name: model-check
+    image: ${APP_IMAGE:-ghcr.io/moyucharm/modelpulse:latest}
+    container_name: modelpulse
     restart: unless-stopped
     ports:
       - "${APP_PORT:-3000}:3000"
     environment:
       - NODE_ENV=production
-      - DATABASE_URL=${DOCKER_DATABASE_URL:-file:/app/data/model-check.db}
+      - DATABASE_URL=${DOCKER_DATABASE_URL:-file:/app/data/modelpulse.db}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:?❌ ADMIN_PASSWORD is required. Set it in .env or environment.}
       - JWT_SECRET=${JWT_SECRET:?❌ JWT_SECRET is required. Set it in .env or environment.}
       - ENCRYPTION_KEY=${ENCRYPTION_KEY:-}
@@ -26,7 +26,7 @@ services:
 
   # redis:
   #   image: docker.m.daocloud.io/library/redis:7-alpine
-  #   container_name: model-check-redis
+  #   container_name: modelpulse-redis
   #   restart: always
   #   profiles: ["redis"]
   #   ports:

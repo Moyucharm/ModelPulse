@@ -34,9 +34,9 @@ function buildSnapshot(model: {
 export function buildTestNotificationMessage(now: Date = new Date()): NotificationMessage {
   return {
     eventType: "problem",
-    title: "测试通知：model-check",
+    title: "测试通知：ModelPulse",
     body: [
-      "这是一条来自 model-check 的测试通知。",
+      "这是一条来自 ModelPulse 的测试通知。",
       "如果你收到了这条消息，说明当前通知渠道配置可用。",
       `发送时间：${now.toLocaleString("zh-CN", { hour12: false })}`,
     ].join("\n"),

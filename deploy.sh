@@ -1,8 +1,8 @@
 #!/bin/bash
 # ==========================================
-# Model Check - 一键部署脚本
+# ModelPulse - 一键部署脚本
 # ==========================================
-# 项目地址: https://github.com/chxcodepro/model-check
+# 项目地址: https://github.com/Moyucharm/ModelPulse
 #
 # 用法: ./deploy.sh [选项]
 #
@@ -105,8 +105,8 @@ check_port_conflicts() {
 show_banner() {
     echo -e "${CYAN}"
     echo "╔══════════════════════════════════════════════╗"
-    echo "║       Model Check - 一键部署脚本                ║"
-    echo "║  https://github.com/chxcodepro/model-check   ║"
+    echo "║       ModelPulse - 一键部署脚本                  ║"
+    echo "║  https://github.com/Moyucharm/ModelPulse      ║"
     echo "╚══════════════════════════════════════════════╝"
     echo -e "${NC}"
 }
@@ -161,7 +161,7 @@ do_update() {
     fi
 
     # 优先拉取预构建镜像，失败则本地构建
-    local image="${APP_IMAGE:-ghcr.io/chxcodepro/model-check:latest}"
+    local image="${APP_IMAGE:-ghcr.io/moyucharm/modelpulse:latest}"
     info "拉取镜像: $image"
     if docker pull "$image"; then
         success "镜像拉取成功"
@@ -174,7 +174,7 @@ do_update() {
     fi
 
     info "同步数据库表结构..."
-    if docker ps --format '{{.Names}}' | grep -q "model-check-postgres"; then
+    if docker ps --format '{{.Names}}' | grep -q "modelpulse-postgres"; then
         if cat prisma/init.postgresql.sql | $compose_cmd exec -T postgres psql -U modelcheck -d model_check; then
             success "数据库同步完成（SQL 幂等脚本）"
         else
@@ -186,7 +186,7 @@ do_update() {
 
     success "更新完成！"
     echo ""
-    echo "查看日志: docker logs -f model-check"
+    echo "查看日志: docker logs -f modelpulse"
 }
 
 # 查看服务状态
@@ -203,11 +203,11 @@ show_status() {
     # 显示容器状态
     echo ""
     echo "容器状态:"
-    docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep -E "model-check|NAMES" || echo "  无运行中的容器"
+    docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep -E "modelpulse|NAMES" || echo "  无运行中的容器"
 
     # 检查应用健康状态
     echo ""
-    if docker ps | grep -q "model-check.*Up"; then
+    if docker ps | grep -q "modelpulse.*Up"; then
         echo -e "应用状态: ${GREEN}运行中${NC}"
 
         # 尝试访问健康检查接口
@@ -585,7 +585,7 @@ start_services() {
     local max_attempts=30
     local attempt=0
     while [ $attempt -lt $max_attempts ]; do
-        if docker ps | grep -q "model-check.*Up"; then
+        if docker ps | grep -q "modelpulse.*Up"; then
             break
         fi
         attempt=$((attempt + 1))
@@ -595,7 +595,7 @@ start_services() {
     echo ""
 
     if [ $attempt -eq $max_attempts ]; then
-        error "服务启动超时，请检查日志: docker logs model-check"
+        error "服务启动超时，请检查日志: docker logs modelpulse"
     fi
 
     success "服务已启动"
@@ -612,7 +612,7 @@ init_database() {
     fi
 
     local has_local_postgres="false"
-    if docker ps --format '{{.Names}}' | grep -q "model-check-postgres"; then
+    if docker ps --format '{{.Names}}' | grep -q "modelpulse-postgres"; then
         has_local_postgres="true"
         info "等待数据库就绪..."
         local max_attempts=30
@@ -700,14 +700,14 @@ show_result() {
     echo ""
 
     echo "常用命令:"
-    echo "  查看日志:   docker logs -f model-check"
+    echo "  查看日志:   docker logs -f modelpulse"
     echo "  重启服务:   docker compose restart"
     echo "  停止服务:   docker compose down"
     echo "  更新部署:   git pull && docker compose up -d --build"
     echo ""
 
     echo "配置文件: .env (修改后需重启服务)"
-    echo "项目地址: https://github.com/chxcodepro/model-check"
+    echo "项目地址: https://github.com/Moyucharm/ModelPulse"
     echo ""
 }
 

@@ -28,7 +28,7 @@ if (typeof adapterCtorCandidate !== "function") {
   );
 }
 
-const sqliteUrl = process.env.DATABASE_URL || "file:./data/model-check.db";
+const sqliteUrl = process.env.DATABASE_URL || "file:./data/modelpulse.db";
 
 function ensureSqliteDirectory(databaseUrl: string): void {
   if (!databaseUrl.startsWith("file:")) {

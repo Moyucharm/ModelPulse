@@ -8,8 +8,8 @@ describe("notification service", () => {
   it("builds a readable test notification message", () => {
     const message = buildTestNotificationMessage(new Date("2026-03-19T12:34:56.000Z"));
 
-    expect(message.title).toBe("测试通知：model-check");
-    expect(message.body).toContain("这是一条来自 model-check 的测试通知");
+    expect(message.title).toBe("测试通知：ModelPulse");
+    expect(message.body).toContain("这是一条来自 ModelPulse 的测试通知");
     expect(message.summary).toBe("测试通知发送成功");
   });
 

@@ -11,7 +11,7 @@ try {
 }
 
 if (!process.env.DATABASE_URL) {
-  process.env.DATABASE_URL = "file:./data/model-check.db";
+  process.env.DATABASE_URL = "file:./data/modelpulse.db";
 }
 
 export default defineConfig({

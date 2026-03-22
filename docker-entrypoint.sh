@@ -7,7 +7,7 @@ set -e
 # ========================================
 
 DATA_DIR="/app/data"
-DB_FILE="${DATA_DIR}/model-check.db"
+DB_FILE="${DATA_DIR}/modelpulse.db"
 PRISMA_CLI_JS="/app/prisma-cli/node_modules/prisma/build/index.js"
 PRISMA_NODE_PATH="/app/prisma-cli/node_modules"
 SCHEMA_FILE="/app/prisma/schema.prisma"

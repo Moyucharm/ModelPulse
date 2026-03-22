@@ -12,7 +12,7 @@ import type { ViewMode } from "@/components/dashboard/channel-card";
 
 const TESTING_STATUS_POLL_INTERVAL = 5000;
 const REFRESH_DEBOUNCE_DELAY = 500;
-const VIEW_MODE_STORAGE_KEY = "model-check:view-mode";
+const VIEW_MODE_STORAGE_KEY = "modelpulse:view-mode";
 
 export default function Home() {
   const [showLogin, setShowLogin] = useState(false);

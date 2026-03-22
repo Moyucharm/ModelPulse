@@ -1,8 +1,8 @@
-﻿# model-check
+﻿# ModelPulse
 
 Model availability checker focused on personal/self-hosted usage.
 
-Repository: https://github.com/Moyucharm/model-check
+Repository: https://github.com/Moyucharm/ModelPulse
 
 ## What Changed
 
@@ -36,7 +36,7 @@ See `.env.example` for full settings.
 
 Key variables:
 
-- `DATABASE_URL=file:./data/model-check.db`
+- `DATABASE_URL=file:./data/modelpulse.db`
 - `REDIS_URL=` (empty for in-memory queue)
 - `CRON_SCHEDULE=0 * * * *`
 - `ADMIN_PASSWORD`, `JWT_SECRET`
