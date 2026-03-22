@@ -23,7 +23,7 @@ function getDerivedKey(): Buffer | null {
   }
 
   // Derive a 256-bit key from the user-supplied secret
-  derivedKey = scryptSync(raw, "modelpulse-apikey-salt", 32);
+  derivedKey = scryptSync(raw, "model-check-apikey-salt", 32);
   return derivedKey;
 }
 
